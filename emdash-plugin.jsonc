@@ -11,10 +11,22 @@
 	"security": { "email": "security@wbcomdesigns.com" },
 	"description": "Free courses for your EmDash site: lessons in the editor, free enrollment, progress and a quiz per lesson. No payments.",
 
-	"capabilities": [],
+	"release": {
+		"requires": { "env:emdash": ">=1.5.0" }
+	},
+
+	"capabilities": ["content:read", "users:read"],
 	"allowedHosts": [],
-	"storage": {},
+	"storage": {
+		"outlines": { "indexes": ["updatedAt"] },
+		"enrollments": { "indexes": [["courseKey", "startedAt"], ["memberId", "updatedAt"]] },
+		"quizzes": { "indexes": ["updatedAt"] },
+		"attempts": { "indexes": [["quizId", "submittedAt"], ["memberId", "submittedAt"]] }
+	},
 	"admin": {
-		"pages": [{ "path": "/home", "label": "Starter", "icon": "sparkle" }]
+		"pages": [
+			{ "path": "/outline", "label": "Course outline", "icon": "list" },
+			{ "path": "/quizzes", "label": "Quizzes", "icon": "check" }
+		]
 	}
 }
