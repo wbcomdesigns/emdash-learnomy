@@ -1,15 +1,589 @@
-import type { PluginContext } from "emdash/plugin";
-
-import { asRecord, asString } from "./util";
+import type { Question, Quiz } from "./schemas";
+import { MAX_QUESTIONS } from "./schemas";
+import { type Ctx, type Fail, titleOf } from "./lib/common";
+import { getOutline, saveOutline } from "./lib/outlines";
+import { listEnrollments, listResults, LIST_PAGE } from "./lib/people";
+import { deleteQuiz, getQuiz, listQuizzes, writeQuiz } from "./lib/quizzes";
+import { eraseRows } from "./learn";
+import { asNumber, asRecord, asString } from "./util";
 
 type Toast = { message: string; type: "success" | "error" | "info" };
-export type BlockResponse = { blocks: Array<Record<string, unknown>>; toast?: Toast };
+type Block = Record<string, unknown>;
+export type BlockResponse = { blocks: Block[]; toast?: Toast; navigate?: Record<string, unknown> };
+type User = { id: string } | undefined;
 
-/** Step 3 builds these pages (SCOPE "In scope" item 3). Until then each says what it will hold. */
-export async function handleAdmin(input: unknown, _ctx: PluginContext): Promise<BlockResponse> {
-	const page = asString(asRecord(input).page);
-	if (page === "/quizzes") {
-		return { blocks: [{ type: "header", text: "Quizzes" }, { type: "empty", title: "No quizzes yet", description: "Quizzes are written here, one question per form." }] };
+/** Paging state carried in button values: where this page starts and the starts of the pages before it. */
+type View = { at?: string; back?: string[]; find?: string };
+
+const OUTLINE_PAGE = 10;
+const COURSE_PAGE = 25;
+
+const ok = (message: string): Toast => ({ message, type: "success" });
+const bad = (message: string): Toast => ({ message, type: "error" });
+const header = (text: string): Block => ({ type: "header", text });
+const note = (text: string): Block => ({ type: "context", text });
+const button = (label: string, action_id: string, value?: unknown, style?: "primary" | "danger" | "secondary", confirm?: Block): Block => ({
+	type: "button",
+	label,
+	action_id,
+	...(value === undefined ? {} : { value }),
+	...(style ? { style } : {}),
+	...(confirm ? { confirm } : {}),
+});
+const actionsRow = (...elements: Block[]): Block => ({ type: "actions", elements });
+const confirmBox = (title: string, text: string, confirm: string): Block => ({ title, text, confirm, deny: "Cancel" });
+const statusBadge = (status: string | undefined) => (status === "published" ? "Published" : status ? "Draft" : "Missing");
+const viewOf = (value: unknown): View => {
+	const v = asRecord(value);
+	return { at: asString(v.at) || undefined, back: Array.isArray(v.back) ? v.back.map(asString).slice(-20) : [], find: asString(v.find) || undefined };
+};
+
+/** Previous and Next buttons for a list whose page is described by `view`. */
+function pager(action: string, view: View, next: string | undefined, extra: Record<string, unknown> = {}): Block[] {
+	const elements: Block[] = [];
+	if (view.back?.length) {
+		const back = [...view.back];
+		const at = back.pop();
+		elements.push(button("Previous page", action, { ...extra, at, back, find: view.find }));
 	}
-	return { blocks: [{ type: "header", text: "Course outline" }, { type: "empty", title: "No outlines yet", description: "Pick a course and add its lessons by title." }] };
+	if (next) elements.push(button("Next page", action, { ...extra, at: next, back: [...(view.back ?? []), view.at ?? ""], find: view.find }));
+	return elements.length ? [actionsRow(...elements)] : [];
+}
+
+const failToast = (result: Fail) => bad(result.error.message);
+
+/* ---------------- Course outline ---------------- */
+
+async function renderCourses(ctx: Ctx, view: View, toast?: Toast): Promise<BlockResponse> {
+	const page = await ctx.content!.list("lms_courses", { orderBy: { title: "asc" }, limit: COURSE_PAGE, ...(view.at ? { cursor: view.at } : {}) });
+	const outlines = page.items.length ? await ctx.storage.outlines!.getMany(page.items.map((item) => item.id)) : new Map();
+	const rows = page.items.map((item) => ({
+		course: titleOf(item, "Untitled course"),
+		status: statusBadge(item.status),
+		lessons: ((outlines.get(item.id) as { lessons?: unknown[] } | undefined)?.lessons ?? []).length,
+		open: button("Open", "outline_open", { c: item.id }),
+	}));
+	return {
+		blocks: [
+			header("Course outline"),
+			note("Pick a course to choose its lessons and their order. Lessons show on the course page in that order."),
+			rows.length === 0
+				? { type: "empty", title: "No courses yet", description: "Write a course under Courses, then come back here to give it lessons." }
+				: {
+						type: "table",
+						page_action_id: "courses_page",
+						columns: [
+							{ key: "course", label: "Course" },
+							{ key: "status", label: "Status", format: "badge" },
+							{ key: "lessons", label: "Lessons", format: "number" },
+							{ key: "open", label: "Outline", format: "element" },
+						],
+						rows,
+					},
+			...pager("courses_page", view, page.hasMore ? page.cursor : undefined),
+		],
+		...(toast ? { toast } : {}),
+	};
+}
+
+async function renderOutline(ctx: Ctx, course: string, pageNo: number, toast?: Toast): Promise<BlockResponse> {
+	const [courseItem, outline] = await Promise.all([ctx.content!.get("lms_courses", course).catch(() => null), getOutline(ctx, course)]);
+	if (!courseItem) return renderCourses(ctx, {}, bad("That course no longer exists."));
+	const title = titleOf(courseItem, "Untitled course");
+	const lessons = outline?.lessons ?? [];
+	const pages = Math.max(1, Math.ceil(lessons.length / OUTLINE_PAGE));
+	const pageAt = Math.min(Math.max(0, pageNo), pages - 1);
+	const shown = lessons.slice(pageAt * OUTLINE_PAGE, (pageAt + 1) * OUTLINE_PAGE);
+	// Status of the lessons on this page only: one read each, ten at most.
+	const items = await Promise.all(shown.map((lesson) => ctx.content!.get("lms_lessons", lesson.id).catch(() => null)));
+	const rev = outline?.rev ?? "";
+	const rows = shown.map((lesson, n) => {
+		const i = pageAt * OUTLINE_PAGE + n;
+		const item = (label: string, a: string) => ({ label, value: JSON.stringify({ a, c: course, i, r: rev, p: pageAt }) });
+		return {
+			position: i + 1,
+			lesson: titleOf(items[n], lesson.title),
+			status: statusBadge(items[n]?.status),
+			change: {
+				type: "menu",
+				action_id: "outline_menu",
+				label: "Change",
+				items: [...(i > 0 ? [item("Move up", "outline_up")] : []), ...(i < lessons.length - 1 ? [item("Move down", "outline_down")] : []), item("Remove from course", "outline_remove")],
+			},
+		};
+	});
+	const hidden = rows.filter((r) => r.status !== "Published").length;
+	const nav: Block[] = [];
+	if (pageAt > 0) nav.push(button("Previous lessons", "outline_open", { c: course, p: pageAt - 1 }));
+	if (pageAt < pages - 1) nav.push(button("Next lessons", "outline_open", { c: course, p: pageAt + 1 }));
+	return {
+		blocks: [
+			header(`Outline: ${title}`),
+			note(lessons.length ? `${lessons.length} lessons. Visitors see the published ones in this order.` : "Add the lessons of this course, then put them in order."),
+			...(hidden ? [{ type: "banner", variant: "alert", title: `${hidden} lesson${hidden > 1 ? "s" : ""} on this page ${hidden > 1 ? "are" : "is"} not published`, description: hidden > 1 ? "Visitors do not see them. Publish them under Lessons, or remove them here." : "Visitors do not see it. Publish it under Lessons, or remove it here." }] : []),
+			rows.length === 0
+				? { type: "empty", title: "No lessons in this outline yet", description: "Add lessons by title. You can reorder them after.", actions: [button("Add lessons", "outline_add", { c: course }, "primary")] }
+				: {
+						type: "table",
+						page_action_id: "outline_rows",
+						columns: [
+							{ key: "position", label: "#", format: "number" },
+							{ key: "lesson", label: "Lesson" },
+							{ key: "status", label: "Status", format: "badge" },
+							{ key: "change", label: "Change", format: "element" },
+						],
+						rows,
+					},
+			...(nav.length ? [actionsRow(...nav)] : []),
+			actionsRow(...(rows.length ? [button("Add lessons", "outline_add", { c: course }, "primary")] : []), button("All courses", "courses_page", {})),
+		],
+		...(toast ? { toast } : {}),
+	};
+}
+
+async function renderAddLessons(ctx: Ctx, course: string, view: View, toast?: Toast): Promise<BlockResponse> {
+	const [courseItem, outline, page] = await Promise.all([
+		ctx.content!.get("lms_courses", course).catch(() => null),
+		getOutline(ctx, course),
+		ctx.content!.list("lms_lessons", { orderBy: { title: "asc" }, limit: COURSE_PAGE, ...(view.at ? { cursor: view.at } : {}) }),
+	]);
+	if (!courseItem) return renderCourses(ctx, {}, bad("That course no longer exists."));
+	const title = titleOf(courseItem, "Untitled course");
+	const inOutline = new Set((outline?.lessons ?? []).map((lesson) => lesson.id));
+	const rev = outline?.rev ?? "";
+	const rows = page.items.map((item) => ({
+		lesson: titleOf(item, "Untitled lesson"),
+		status: statusBadge(item.status),
+		here: inOutline.has(item.id) ? "In this course" : "",
+		add: inOutline.has(item.id) ? null : button("Add", "outline_put", { c: course, l: item.id, r: rev, at: view.at, back: view.back }),
+	}));
+	return {
+		blocks: [
+			header(`Add lessons to ${title}`),
+			note(`${inOutline.size} lessons in this course so far. Each one you add goes to the end; reorder them on the outline.`),
+			rows.length === 0
+				? { type: "empty", title: "No lessons yet", description: "Write lessons under Lessons first. They join a course here." }
+				: {
+						type: "table",
+						page_action_id: "outline_add",
+						columns: [
+							{ key: "lesson", label: "Lesson" },
+							{ key: "status", label: "Status", format: "badge" },
+							{ key: "here", label: "Course" },
+							{ key: "add", label: "Add", format: "element" },
+						],
+						rows,
+					},
+			...pager("outline_add", view, page.hasMore ? page.cursor : undefined, { c: course }),
+			actionsRow(button("Back to the outline", "outline_open", { c: course }, "primary")),
+		],
+		...(toast ? { toast } : {}),
+	};
+}
+
+async function changeOutline(ctx: Ctx, action: string, value: Record<string, unknown>): Promise<BlockResponse> {
+	const course = asString(value.c);
+	const rev = asString(value.r);
+	const outline = await getOutline(ctx, course);
+	const ids = (outline?.lessons ?? []).map((lesson) => lesson.id);
+	if ((outline?.rev ?? "") !== rev) return renderOutline(ctx, course, 0, bad("Someone else changed this outline since you opened it. It is reloaded now; try again."));
+	if (action === "outline_put") {
+		const result = await saveOutline(ctx, course, [...ids, asString(value.l)], rev);
+		return renderAddLessons(ctx, course, viewOf(value), result.ok ? ok(`Added "${result.outline.lessons.at(-1)!.title}".`) : failToast(result));
+	}
+	const i = asNumber(value.i) ?? -1;
+	if (i < 0 || i >= ids.length) return renderOutline(ctx, course, 0, bad("That lesson moved. The outline is reloaded now."));
+	const next = [...ids];
+	let message = "";
+	if (action === "outline_remove") {
+		next.splice(i, 1);
+		message = `Removed "${outline!.lessons[i]!.title}".`;
+	} else {
+		const j = action === "outline_up" ? i - 1 : i + 1;
+		if (j < 0 || j >= next.length) return renderOutline(ctx, course, asNumber(value.p) ?? 0);
+		[next[i], next[j]] = [next[j]!, next[i]!];
+		message = `Moved "${outline!.lessons[i]!.title}" ${action === "outline_up" ? "up" : "down"}.`;
+	}
+	const result = await saveOutline(ctx, course, next, rev);
+	return renderOutline(ctx, course, asNumber(value.p) ?? 0, result.ok ? ok(message) : failToast(result));
+}
+
+/* ---------------- Quizzes ---------------- */
+
+const TYPE_LABEL: Record<Question["type"], string> = { choice: "Multiple choice", true_false: "True or false" };
+const answerText = (q: Question) => (q.type === "choice" ? q.answers[q.correct] ?? "" : q.correct === 0 ? "True" : "False");
+
+async function renderQuizzes(ctx: Ctx, view: View, toast?: Toast): Promise<BlockResponse> {
+	const page = await listQuizzes(ctx, view.at);
+	const rows = page.items.map((quiz) => ({
+		quiz: quiz.title,
+		questions: quiz.questions,
+		updated: quiz.updatedAt,
+		open: button("Open", "quiz_open", { q: quiz.id }),
+	}));
+	return {
+		blocks: [
+			header("Quizzes"),
+			{
+				type: "form",
+				block_id: "quiz_new",
+				fields: [{ type: "text_input", action_id: "title", label: "New quiz title" }],
+				submit: { label: "Create quiz", action_id: "quiz_create" },
+			},
+			rows.length === 0 && !view.at
+				? { type: "empty", title: "No quizzes yet", description: "Create a quiz above, then add its questions one at a time. Each lesson can have one quiz." }
+				: {
+						type: "table",
+						page_action_id: "quizzes_page",
+						columns: [
+							{ key: "quiz", label: "Quiz" },
+							{ key: "questions", label: "Questions", format: "number" },
+							{ key: "updated", label: "Updated", format: "relative_time" },
+							{ key: "open", label: "Quiz", format: "element" },
+						],
+						rows,
+					},
+			...pager("quizzes_page", view, page.cursor),
+		],
+		...(toast ? { toast } : {}),
+	};
+}
+
+function questionForm(id: string, quiz: Quiz, index: number | null): Block {
+	const q = index === null ? null : quiz.questions[index] ?? null;
+	const choice = q?.type === "choice" ? q : null;
+	const options = (labels: string[]) => labels.map((label, i) => ({ label, value: String(i) }));
+	return {
+		type: "form",
+		block_id: index === null ? `qa|${id}|${quiz.rev}` : `qe|${id}|${quiz.rev}|${index}`,
+		fields: [
+			{ type: "select", action_id: "type", label: "Kind of question", options: [{ label: TYPE_LABEL.choice, value: "choice" }, { label: TYPE_LABEL.true_false, value: "true_false" }], initial_value: q?.type ?? "choice" },
+			{ type: "text_input", action_id: "prompt", label: "Question", multiline: true, initial_value: q?.prompt ?? "" },
+			...[0, 1, 2, 3].map((i) => ({ type: "text_input", action_id: `answer_${i}`, label: `Answer ${i + 1}`, initial_value: choice?.answers[i] ?? "", condition: { field: "type", eq: "choice" } })),
+			{ type: "select", action_id: "correct_choice", label: "Correct answer", options: options(["Answer 1", "Answer 2", "Answer 3", "Answer 4"]), initial_value: String(choice?.correct ?? 0), condition: { field: "type", eq: "choice" } },
+			{ type: "select", action_id: "correct_tf", label: "Correct answer", options: options(["True", "False"]), initial_value: String(q?.type === "true_false" ? q.correct : 0), condition: { field: "type", eq: "true_false" } },
+		],
+		submit: { label: index === null ? "Add question" : "Save question", action_id: index === null ? "question_add" : "question_save" },
+	};
+}
+
+async function renderQuiz(ctx: Ctx, id: string, quiz: Quiz | null, editing: number | null, toast?: Toast, asking?: number): Promise<BlockResponse> {
+	const row = quiz ?? (await getQuiz(ctx, id));
+	if (!row) return renderQuizzes(ctx, {}, bad("That quiz no longer exists."));
+	const rows = row.questions.map((q, i) => ({
+		position: i + 1,
+		question: q.prompt,
+		answer: answerText(q),
+		change: {
+			type: "menu",
+			action_id: "question_menu",
+			label: "Change",
+			items: [
+				{ label: "Edit question", value: JSON.stringify({ a: "edit", q: id, i }) },
+				{ label: "Remove question", value: JSON.stringify({ a: "ask", q: id, i }) },
+			],
+		},
+	}));
+	const full = row.questions.length >= MAX_QUESTIONS;
+	return {
+		blocks: [
+			header(`Quiz: ${row.title}`),
+			note(`${row.questions.length} of ${MAX_QUESTIONS} questions. Visitors never see the correct answers before they submit.`),
+			...(asking !== undefined && row.questions[asking]
+				? [
+						{ type: "banner", variant: "alert", title: `Remove question ${asking + 1}?`, description: `"${row.questions[asking]!.prompt}" is removed from this quiz. Results already saved keep their score.` },
+						actionsRow(button("Remove question", "question_remove", { q: id, i: asking, r: row.rev }, "danger"), button("Keep it", "quiz_open", { q: id })),
+					]
+				: []),
+			{
+				type: "form",
+				block_id: `qt|${id}|${row.rev}`,
+				fields: [{ type: "text_input", action_id: "title", label: "Quiz title", initial_value: row.title }],
+				submit: { label: "Save title", action_id: "quiz_title" },
+			},
+			rows.length === 0
+				? { type: "empty", title: "No questions yet", description: "Add the first question below: multiple choice with four answers, or true or false." }
+				: {
+						type: "table",
+						page_action_id: "quiz_rows",
+						columns: [
+							{ key: "position", label: "#", format: "number" },
+							{ key: "question", label: "Question" },
+							{ key: "answer", label: "Correct answer" },
+							{ key: "change", label: "Change", format: "element" },
+						],
+						rows,
+					},
+			editing !== null ? header(`Edit question ${editing + 1}`) : header("Add a question"),
+			editing === null && full
+				? { type: "banner", variant: "default", title: `This quiz has ${MAX_QUESTIONS} questions`, description: "That is the most a quiz can hold. Remove one to add another." }
+				: questionForm(id, row, editing),
+			actionsRow(
+				...(editing !== null ? [button("Cancel editing", "quiz_open", { q: id })] : []),
+				button("All quizzes", "quizzes_page", {}),
+				button("Delete quiz", "quiz_delete", { q: id, r: row.rev }, "danger", confirmBox("Delete this quiz?", `Delete "${row.title}"? Lessons that use it show no quiz, and its results stay in Quiz results.`, "Delete")),
+			),
+		],
+		...(toast ? { toast } : {}),
+	};
+}
+
+function questionFrom(values: Record<string, unknown>): Question {
+	const prompt = asString(values.prompt);
+	if (asString(values.type) === "true_false") return { type: "true_false", prompt, correct: asString(values.correct_tf) === "1" ? 1 : 0 };
+	const correct = Math.min(3, Math.max(0, asNumber(values.correct_choice) ?? 0));
+	return { type: "choice", prompt, answers: [0, 1, 2, 3].map((i) => asString(values[`answer_${i}`])), correct };
+}
+
+async function submitQuizForm(ctx: Ctx, action: string, blockId: string, values: Record<string, unknown>): Promise<BlockResponse> {
+	if (action === "quiz_create") {
+		const title = asString(values.title);
+		if (!title) return renderQuizzes(ctx, {}, bad("Give the quiz a title first."));
+		const made = await writeQuiz(ctx, null, undefined, () => ({ title, lessonKey: "", questions: [] }));
+		return made.ok ? renderQuiz(ctx, made.id, made.quiz, null, ok(`Created "${title}". Add its questions below.`)) : renderQuizzes(ctx, {}, failToast(made));
+	}
+	const [, id = "", rev = "", index = ""] = blockId.split("|");
+	const at = Number(index);
+	const result = await writeQuiz(ctx, id, rev, (current) => {
+		const quiz = current!;
+		if (action === "quiz_title") return { ...quiz, title: asString(values.title) };
+		const q = questionFrom(values);
+		if (action === "question_add") return { ...quiz, questions: [...quiz.questions, q] };
+		if (!(at >= 0 && at < quiz.questions.length)) return { ok: false, error: { code: "GONE", message: "That question was removed meanwhile." } };
+		return { ...quiz, questions: quiz.questions.map((old, i) => (i === at ? q : old)) };
+	});
+	if (!result.ok) {
+		// Keep the owner's typing on a refused question: the form shows again with what was refused.
+		const current = await getQuiz(ctx, id);
+		return current ? renderQuiz(ctx, id, current, action === "question_save" ? at : null, failToast(result)) : renderQuizzes(ctx, {}, failToast(result));
+	}
+	const message = action === "quiz_title" ? "Title saved." : action === "question_add" ? `Question ${result.quiz.questions.length} added.` : `Question ${at + 1} saved.`;
+	return renderQuiz(ctx, id, result.quiz, null, ok(message));
+}
+
+/* ---------------- Enrollments and quiz results ---------------- */
+
+function listChrome(action: string, what: string, listed: { total: number; partial: boolean }, view: View): Block[] {
+	return [
+		{ type: "stats", items: [{ label: what, value: listed.total }] },
+		{
+			type: "form",
+			block_id: `${action}_find`,
+			fields: [{ type: "text_input", action_id: "find", label: "Find a member by name or email", initial_value: view.find ?? "" }],
+			submit: { label: "Find", action_id: `${action}_find` },
+		},
+		...(view.find
+			? [note(listed.partial ? `Showing matches among the first 500 members. Search by their email to find anyone. Clear the box and press Find to see everything.` : "Clear the box and press Find to see everything.")]
+			: listed.total > LIST_PAGE
+				? [note(`${listed.total} in all, ${LIST_PAGE} per page, newest first.`)]
+				: []),
+	];
+}
+
+async function renderEnrollments(ctx: Ctx, view: View, toast?: Toast): Promise<BlockResponse> {
+	const listed = await listEnrollments(ctx, { cursor: view.at, find: view.find });
+	const rows = listed.items.map((e) => ({
+		member: e.memberName,
+		course: e.courseTitle || "Untitled course",
+		progress: e.completedAt ? "Finished" : `${e.done.length} of ${e.lessons} lessons`,
+		erase: { type: "menu", action_id: "member_menu", label: "Member", items: [{ label: "Erase their data", value: JSON.stringify({ m: e.memberId, n: e.memberName }) }] },
+	}));
+	return {
+		blocks: [
+			header("Enrollments"),
+			...listChrome("enrollments", "Enrollments", listed, view),
+			rows.length === 0
+				? view.find
+					? { type: "empty", title: "Nothing matches", description: "No enrollment belongs to a member with that name or email." }
+					: { type: "empty", title: "No enrollments yet", description: "Members appear here when they enroll in a course." }
+				: {
+						type: "table",
+						page_action_id: "enrollments_page",
+						columns: [
+							{ key: "member", label: "Member" },
+							{ key: "course", label: "Course" },
+							{ key: "progress", label: "Progress" },
+							{ key: "erase", label: "Member", format: "element" },
+						],
+						rows,
+					},
+			...pager("enrollments_page", view, listed.cursor),
+		],
+		...(toast ? { toast } : {}),
+	};
+}
+
+async function renderResults(ctx: Ctx, view: View, toast?: Toast): Promise<BlockResponse> {
+	const listed = await listResults(ctx, { cursor: view.at, find: view.find });
+	const rows = listed.items.map((a) => ({ member: a.memberName, quiz: a.quizTitle, score: `${a.score} of ${a.total}`, submitted: a.submittedAt }));
+	return {
+		blocks: [
+			header("Quiz results"),
+			...listChrome("results", "Quiz results", listed, view),
+			rows.length === 0
+				? view.find
+					? { type: "empty", title: "Nothing matches", description: "No quiz result belongs to a member with that name or email." }
+					: { type: "empty", title: "No quiz results yet", description: "A member's latest score on each quiz appears here." }
+				: {
+						type: "table",
+						page_action_id: "results_page",
+						columns: [
+							{ key: "member", label: "Member" },
+							{ key: "quiz", label: "Quiz" },
+							{ key: "score", label: "Score" },
+							{ key: "submitted", label: "Submitted", format: "relative_time" },
+						],
+						rows,
+					},
+			...pager("results_page", view, listed.cursor),
+		],
+		...(toast ? { toast } : {}),
+	};
+}
+
+/** Ask once, naming the member, before erasing. No reads: the page names them from the row. */
+function askErase(value: Record<string, unknown>): BlockResponse {
+	const name = asString(value.n) || "this member";
+	return {
+		blocks: [
+			header("Enrollments"),
+			{ type: "banner", variant: "alert", title: `Erase ${name}'s Learnomy data?`, description: "Every enrollment and quiz result of this member is deleted. This cannot be undone. Their site account stays." },
+			actionsRow(button("Erase their data", "member_erase", { m: asString(value.m), n: name }, "danger"), button("Keep it", "enrollments_page", {})),
+		],
+	};
+}
+
+/** Erase one member: up to 18 calls, so the answer is a short page instead of the list. */
+async function eraseOne(ctx: Ctx, value: Record<string, unknown>): Promise<BlockResponse> {
+	const member = asString(value.m);
+	const name = asString(value.n) || "this member";
+	const result = await eraseRows(ctx, member);
+	const back = button("Show enrollments", "enrollments_page", {}, "primary");
+	if (!result.done) {
+		return {
+			blocks: [header("Enrollments"), { type: "banner", variant: "alert", title: `Part of ${name}'s data is erased`, description: "There was more than one call could remove. Press Erase again to finish." }, actionsRow(button("Erase again", "member_erase", value, "danger"), back)],
+			toast: { message: `Erased part of ${name}'s data. Press Erase again to finish.`, type: "info" },
+		};
+	}
+	return {
+		blocks: [header("Enrollments"), { type: "banner", variant: "default", title: `${name}'s Learnomy data is erased`, description: "Their enrollments and quiz results are gone. Their site account stays." }, actionsRow(back)],
+		toast: ok(`Erased ${name}'s enrollments and quiz results.`),
+	};
+}
+
+/* ---------------- Dashboard card ---------------- */
+
+async function renderWidget(ctx: Ctx): Promise<BlockResponse> {
+	const [courses, enrollments, attempts] = await Promise.all([
+		ctx.content!.list("lms_courses", { where: { status: "published" }, limit: 100 }),
+		ctx.storage.enrollments!.count(),
+		ctx.storage.attempts!.count(),
+	]);
+	return {
+		blocks: [
+			{
+				type: "stats",
+				items: [
+					{ label: "Courses", value: courses.hasMore ? "100+" : courses.items.length, description: "published" },
+					{ label: "Enrollments", value: enrollments },
+					{ label: "Results", value: attempts, description: "quiz scores" },
+				],
+			},
+			actionsRow(
+				{ type: "link", label: "New course", target: { kind: "external", url: new URL("/_emdash/admin/content/lms_courses/new", ctx.site.url).href }, appearance: "primary" },
+				{ type: "link", label: "Course outline", target: { kind: "plugin-page", path: "/outline" } },
+			),
+		],
+	};
+}
+
+/* ---------------- Routing ---------------- */
+
+/** The course the lesson panel asked to open, kept for the next Course outline page load. */
+export const openKey = (user: string) => `state:open:${user}`;
+
+export async function handleAdmin(input: unknown, ctx: Ctx, user?: User): Promise<BlockResponse> {
+	const raw = asRecord(input);
+	const type = asString(raw.type);
+	const action = asString(raw.action_id);
+	const value = asRecord(raw.value);
+
+	if (type === "page_load") {
+		const page = asString(raw.page);
+		if (page === "widget:summary") return renderWidget(ctx);
+		if (page === "/quizzes") return renderQuizzes(ctx, {});
+		if (page === "/enrollments") return renderEnrollments(ctx, {});
+		if (page === "/results") return renderResults(ctx, {});
+		if (user) {
+			const course = await ctx.kv.get<string>(openKey(user.id));
+			if (course) {
+				await ctx.kv.delete(openKey(user.id));
+				return renderOutline(ctx, course, 0);
+			}
+		}
+		return renderCourses(ctx, {});
+	}
+
+	if (type === "form_submit") {
+		const values = asRecord(raw.values);
+		const find = asString(values.find).slice(0, 80);
+		if (action === "enrollments_find") return renderEnrollments(ctx, { find: find || undefined });
+		if (action === "results_find") return renderResults(ctx, { find: find || undefined });
+		return submitQuizForm(ctx, action, asString(raw.block_id), values);
+	}
+
+	switch (action) {
+		case "courses_page":
+			return renderCourses(ctx, viewOf(value));
+		case "outline_open":
+			return renderOutline(ctx, asString(value.c), asNumber(value.p) ?? 0);
+		case "outline_add":
+			return renderAddLessons(ctx, asString(value.c), viewOf(value));
+		case "outline_put":
+			return changeOutline(ctx, action, value);
+		case "outline_menu": {
+			// A row's menu sends the chosen item's value: the action and the row, as JSON.
+			let picked: Record<string, unknown> = {};
+			try {
+				picked = asRecord(JSON.parse(asString(raw.value)));
+			} catch {}
+			const move = asString(picked.a);
+			return ["outline_up", "outline_down", "outline_remove"].includes(move) ? changeOutline(ctx, move, picked) : renderCourses(ctx, {});
+		}
+		case "quizzes_page":
+			return renderQuizzes(ctx, viewOf(value));
+		case "quiz_open":
+			return renderQuiz(ctx, asString(value.q), null, null);
+		case "question_menu": {
+			let picked: Record<string, unknown> = {};
+			try {
+				picked = asRecord(JSON.parse(asString(raw.value)));
+			} catch {}
+			const at = asNumber(picked.i) ?? 0;
+			return picked.a === "edit" ? renderQuiz(ctx, asString(picked.q), null, at) : renderQuiz(ctx, asString(picked.q), null, null, undefined, at);
+		}
+		case "question_remove": {
+			const at = asNumber(value.i) ?? -1;
+			const result = await writeQuiz(ctx, asString(value.q), asString(value.r), (current) => ({ ...current!, questions: current!.questions.filter((_, i) => i !== at) }));
+			return result.ok ? renderQuiz(ctx, result.id, result.quiz, null, ok(`Question ${at + 1} removed.`)) : renderQuiz(ctx, asString(value.q), null, null, failToast(result));
+		}
+		case "quiz_delete": {
+			const result = await deleteQuiz(ctx, asString(value.q), asString(value.r));
+			return renderQuizzes(ctx, {}, result.ok ? ok(`Deleted "${result.title}".`) : failToast(result));
+		}
+		case "enrollments_page":
+			return renderEnrollments(ctx, viewOf(value));
+		case "results_page":
+			return renderResults(ctx, viewOf(value));
+		case "member_menu": {
+			let picked: Record<string, unknown> = {};
+			try {
+				picked = asRecord(JSON.parse(asString(raw.value)));
+			} catch {}
+			return askErase(picked);
+		}
+		case "member_erase":
+			return eraseOne(ctx, value);
+	}
+	return renderCourses(ctx, {});
 }

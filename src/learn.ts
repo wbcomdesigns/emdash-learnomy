@@ -1,44 +1,31 @@
-import type { PluginContext } from "emdash/plugin";
-import type { z } from "zod/mini";
-
 import {
 	courseInput,
 	lessonInput,
 	MAX_DONE,
-	outline as outlineSchema,
 	quiz as quizSchema,
 	quizInput,
 	submitInput,
 	type Attempt,
 	type Enrollment,
-	type Outline,
 	type Quiz,
 } from "./schemas";
-import { asRecord, asString, nowIso } from "./util";
+import { BAD_INPUT, type Ctx, fail, nowIso, parse } from "./lib/common";
+import { getOutline as loadOutline } from "./lib/outlines";
+import { asRecord, asString } from "./util";
 
-type Ctx = PluginContext;
 type RouteCtx = { input: unknown; user?: { id: string } };
-type Fail = { ok: false; error: { code: string; message: string } };
 
-const fail = (code: string, message: string): Fail => ({ ok: false, error: { code, message } });
 const SIGN_IN = fail("SIGN_IN_REQUIRED", "Sign in to continue.");
-const BAD_INPUT = fail("INVALID_INPUT", "Something in the request is missing or not valid.");
-
-function parse<S extends z.ZodMiniType>(schema: S, input: unknown): z.infer<S> | null {
-	const parsed = schema.safeParse(input);
-	return parsed.success ? parsed.data : null;
-}
 
 const enrollmentId = (memberId: string, courseKey: string) => `${memberId}:${courseKey}`;
 
-async function loadOutline(ctx: Ctx, courseKey: string): Promise<Outline | null> {
-	return parse(outlineSchema, await ctx.storage.outlines!.get(courseKey));
-}
-
-async function loadQuiz(ctx: Ctx, quizId: string): Promise<Quiz | null | "invalid"> {
+/** null: no quiz; "invalid": a stored row that does not match the schema; "empty": no questions yet. */
+async function loadQuiz(ctx: Ctx, quizId: string): Promise<Quiz | null | "invalid" | "empty"> {
 	const row = await ctx.storage.quizzes!.get(quizId);
 	if (row === null) return null;
-	return parse(quizSchema, row) ?? "invalid";
+	const parsed = parse(quizSchema, row);
+	if (!parsed) return "invalid";
+	return parsed.questions.length ? parsed : "empty";
 }
 
 /** Public. A course's ordered lessons (ids and titles), one storage get. The kit hides lessons that are not published. */
@@ -113,6 +100,7 @@ export async function quiz(routeCtx: RouteCtx, ctx: Ctx) {
 	const row = await loadQuiz(ctx, input.quiz);
 	if (row === null) return fail("QUIZ_NOT_FOUND", "No quiz on this lesson.");
 	if (row === "invalid") return fail("QUIZ_INVALID", "This quiz cannot be shown. The site owner needs to fix it.");
+	if (row === "empty") return fail("QUIZ_EMPTY", "This quiz has no questions yet.");
 	return {
 		ok: true,
 		quiz: {
@@ -133,6 +121,7 @@ export async function submitQuiz(routeCtx: RouteCtx, ctx: Ctx) {
 	const row = await loadQuiz(ctx, input.quiz);
 	if (row === null) return fail("QUIZ_NOT_FOUND", "No quiz on this lesson.");
 	if (row === "invalid") return fail("QUIZ_INVALID", "This quiz cannot be scored. The site owner needs to fix it.");
+	if (row === "empty") return fail("QUIZ_EMPTY", "This quiz has no questions yet.");
 	const valid =
 		input.answers.length === row.questions.length &&
 		row.questions.every((q, i) => input.answers[i]! <= (q.type === "choice" ? 3 : 1));

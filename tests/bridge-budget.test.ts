@@ -3,17 +3,18 @@ import { countBridgeCalls } from "./bridge-count";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { ana, ben, courseWithOutline, openSite, QUIZ, type Site } from "./site";
+import { ana, courseWithOutline, member, openSite, QUIZ, type Site } from "./site";
 
 /** Learnomy's cap per entry point (SCOPE: EmDash 1.5 gives 30 on Cloudflare; we keep 20). */
 const CAP = 20;
 
 /**
  * Bridge calls per entry point at its worst case, measured and pinned: a change that moves one shows
- * up here. The busy site: a 200-lesson outline, a 20-question quiz, and a member with 500
- * enrollments and 500 attempts to erase. completeLesson retries once when another tab wrote between its
- * read and write: its ceiling is 5 (outline get, then getVersioned + compareAndSet twice), never measured
- * here because the test host runs one call at a time.
+ * up here. The busy site: 520 members, 600 course outlines, one of 200 lessons, 30 courses and 30
+ * lessons, a 20-question quiz, 15 members with enrollments and results on the first list page, and a
+ * member with 500 enrollments and 500 attempts to erase. completeLesson retries once when another tab
+ * wrote between its read and write: its ceiling is 5 (outline get, then getVersioned + compareAndSet
+ * twice), never measured here because the test host runs one call at a time.
  */
 const MEASURED: Record<string, number> = {
 	"route outline (200 lessons)": 1,
@@ -25,62 +26,174 @@ const MEASURED: Record<string, number> = {
 	"route completeLesson (not in outline)": 1,
 	"route submitQuiz (20 questions)": 2,
 	"route eraseMember (500 + 500 rows, each round)": 18,
-	"admin page_load /outline": 0,
-	"admin page_load /quizzes": 0,
+	"admin page_load /outline": 3,
+	"admin page_load /outline (opened from the lesson panel)": 14,
+	"admin courses_page": 2,
+	"admin outline_open (200 lessons, 10 shown)": 12,
+	"admin outline_add (30 lessons)": 3,
+	"admin outline_put": 8,
+	"admin outline_up": 16,
+	"admin outline_remove": 16,
+	"admin page_load /quizzes": 1,
+	"admin quiz_create": 1,
+	"admin quiz_open": 1,
+	"admin question_add": 2,
+	"admin question_add (refused, form shown again)": 2,
+	"admin question_save": 2,
+	"admin question_menu (remove asks first)": 1,
+	"admin question_remove": 2,
+	"admin quiz_delete": 3,
+	"admin page_load /enrollments (15 members)": 18,
+	"admin enrollments_find (name, 520 members)": 7,
+	"admin enrollments_find (email)": 4,
+	"admin page_load /results (15 members)": 18,
+	"admin member_menu (asks first)": 0,
+	"admin member_erase (500 + 500 rows, each round)": 18,
+	"admin widget summary": 3,
+	"panel load (600 outlines)": 5,
+	"panel open_outline": 1,
+	"tool getOutline": 1,
+	"tool setOutline (15 new lessons)": 18,
+	"tool listQuizzes": 1,
+	"tool getQuiz": 1,
+	"tool saveQuiz (replace)": 2,
+	"tool deleteQuiz": 2,
+	"tool listEnrollments": 18,
+	"tool listResults": 18,
 };
 
 const seen = new Map<string, number>();
+const root = member("root", 50);
+type Out = Record<string, any>;
 
 describe("bridge calls per entry point, worst case", () => {
 	let s: Site;
 	let course = "";
 	let lessons: Array<{ id: string }> = [];
+	const loose: string[] = [];
+	const members: string[] = [];
 
-	async function measure(name: string, call: () => Promise<unknown>) {
+	async function measure(name: string, call: () => Promise<unknown>): Promise<Out> {
 		const { result, calls } = await countBridgeCalls(call);
 		seen.set(name, Math.max(seen.get(name) ?? 0, calls.length));
 		expect(calls.length, `${name}: ${calls.join(", ")}`).toBeLessThanOrEqual(MEASURED[name] ?? CAP);
-		return result as Record<string, unknown>;
+		return result as Out;
 	}
+	const tool = (name: string, input: unknown) => s.rt.transport.invokeRoute(`tools/${name}`, input, { method: "POST", user: root } as never) as Promise<Out>;
 
 	beforeAll(async () => {
 		s = await openSite();
 		({ course, lessons } = await courseWithOutline(s, 200));
+		for (let i = 0; i < 30; i += 1) await s.entry("lms_courses", `Course ${String(i).padStart(2, "0")}`);
+		for (let i = 0; i < 30; i += 1) loose.push(await s.entry("lms_lessons", `Loose ${String(i).padStart(2, "0")}`));
+		const at = (n: number) => new Date(Date.UTC(2026, 10, 1) + n * 60_000).toISOString();
+		for (let i = 0; i < 600; i += 1) await s.rt.fixtures.plugin.storage("outlines", `other-${i}`, { courseKey: `other-${i}`, courseTitle: `Other ${i}`, lessons: [], updatedAt: at(-i), rev: "r" });
+		for (let i = 0; i < 520; i += 1) members.push((await s.rt.fixtures.user({ email: `m${i}@example.com`, name: `Member ${i}`, role: "subscriber" })).id);
 		await s.rt.fixtures.plugin.storage("quizzes", "q20", { ...QUIZ, questions: Array.from({ length: 20 }, () => QUIZ.questions[0]) });
-		const at = "2026-11-15T00:00:00.000Z";
+		await s.rt.fixtures.plugin.storage("quizzes", "q1", QUIZ);
+		for (let i = 0; i < 15; i += 1) {
+			await s.rt.fixtures.plugin.storage("enrollments", `${members[i]}:${course}`, { memberId: members[i], courseKey: course, courseTitle: "Course A", startedAt: at(1000 + i), updatedAt: at(1000 + i), completedAt: null, done: [] });
+			await s.rt.fixtures.plugin.storage("attempts", `${members[i]}:q1`, { memberId: members[i], quizId: "q1", lessonKey: "", score: 1, total: 2, answers: [0, 0], submittedAt: at(1000 + i) });
+		}
+		for (let i = 0; i < 500; i += 1) {
+			await s.rt.fixtures.plugin.storage("enrollments", `ben:c${i}`, { memberId: "ben", courseKey: `c${i}`, courseTitle: "", startedAt: at(i), updatedAt: at(i), completedAt: null, done: [] });
+			await s.rt.fixtures.plugin.storage("attempts", `ben:q${i}`, { memberId: "ben", quizId: `q${i}`, lessonKey: "", score: 0, total: 1, answers: [0], submittedAt: at(i) });
+		}
+	}, 300_000);
+	afterAll(() => s.dispose());
+
+	it("public and member routes", async () => {
+		await measure("route outline (200 lessons)", () => s.get("outline", { course }));
+		await measure("route quiz (20 questions)", () => s.get("quiz", { quiz: "q20" }));
+		expect((await measure("route enroll", () => s.post("enroll", { course }, ana))).ok).toBe(true);
+		await measure("route enroll (second time)", () => s.post("enroll", { course }, ana));
+		await measure("route completeLesson (not in outline)", () => s.post("completeLesson", { course, lesson: "nope" }, ana));
+		const row = await s.rt.inspect.storage.get<Record<string, unknown>>("enrollments", `ana:${course}`);
+		await s.rt.fixtures.plugin.storage("enrollments", `ana:${course}`, { ...row, done: lessons.slice(0, 199).map((l) => l.id) });
+		const last = await measure("route completeLesson (last lesson of 200)", () => s.post("completeLesson", { course, lesson: lessons[199]!.id }, ana));
+		expect(last.enrollment.completedAt).toBeTruthy();
+		await measure("route completeLesson (already done)", () => s.post("completeLesson", { course, lesson: lessons[0]!.id }, ana));
+		await measure("route submitQuiz (20 questions)", () => s.post("submitQuiz", { quiz: "q20", answers: Array(20).fill(2) }, ana));
+	});
+
+	it("course outline admin and lesson panel", async () => {
+		const admin = s.rt.admin;
+		await measure("admin page_load /outline", () => admin.loadPage("/outline", { user: root }));
+		await measure("admin courses_page", () => admin.act("/outline", "courses_page", { value: {}, user: root }));
+		const opened = await measure("admin outline_open (200 lessons, 10 shown)", () => admin.act("/outline", "outline_open", { value: { c: course, p: 3 }, user: root }));
+		const rev = (await s.rt.inspect.storage.get<{ rev: string }>("outlines", course))!.rev;
+		await measure("admin outline_up", () => admin.act("/outline", "outline_menu", { value: JSON.stringify({ a: "outline_up", c: course, i: 35, r: rev, p: 3 }), user: root }));
+		const rev2 = (await s.rt.inspect.storage.get<{ rev: string }>("outlines", course))!.rev;
+		await measure("admin outline_remove", () => admin.act("/outline", "outline_menu", { value: JSON.stringify({ a: "outline_remove", c: course, i: 35, r: rev2, p: 3 }), user: root }));
+		expect(opened.blocks).toBeTruthy();
+		await measure("admin outline_add (30 lessons)", () => admin.act("/outline", "outline_add", { value: { c: course }, user: root }));
+		const rev3 = (await s.rt.inspect.storage.get<{ rev: string }>("outlines", course))!.rev;
+		const put = await measure("admin outline_put", () => admin.act("/outline", "outline_put", { value: { c: course, l: loose[0], r: rev3 }, user: root }));
+		expect(put.toast.type).toBe("success");
+		await measure("panel load (600 outlines)", () => admin.loadEditorPanel("courses", "lms_lessons", lessons[0]!.id, { user: root }));
+		await measure("panel open_outline", () => admin.actEditorPanel("courses", "lms_lessons", lessons[0]!.id, "open_outline", { value: { c: course }, user: root }));
+		await measure("admin page_load /outline (opened from the lesson panel)", () => admin.loadPage("/outline", { user: root }));
+	});
+
+	it("quizzes admin", async () => {
+		const admin = s.rt.admin;
+		await measure("admin page_load /quizzes", () => admin.loadPage("/quizzes", { user: root }));
+		const made = await measure("admin quiz_create", () => admin.submit("/quizzes", "quiz_create", { title: "Budget quiz" }, { user: root }));
+		const id = (await s.rt.inspect.storage.list<{ title: string }>("quizzes")).find((q) => q.data.title === "Budget quiz")!.id;
+		expect(made.toast.type).toBe("success");
+		await measure("admin quiz_open", () => admin.act("/quizzes", "quiz_open", { value: { q: id }, user: root }));
+		const rev = async () => (await s.rt.inspect.storage.get<{ rev: string }>("quizzes", id))!.rev;
+		await measure("admin question_add", async () => admin.submit("/quizzes", "question_add", { type: "true_false", prompt: "Yes?", correct_tf: "0" }, { blockId: `qa|${id}|${await rev()}`, user: root }));
+		const r1 = await rev();
+		await measure("admin question_add (refused, form shown again)", () => admin.submit("/quizzes", "question_add", { type: "choice", prompt: "", correct_choice: "0" }, { blockId: `qa|${id}|${r1}`, user: root }));
+		const r2 = await rev();
+		await measure("admin question_save", () => admin.submit("/quizzes", "question_save", { type: "true_false", prompt: "No?", correct_tf: "1" }, { blockId: `qe|${id}|${r2}|0`, user: root }));
+		await measure("admin question_menu (remove asks first)", () => admin.act("/quizzes", "question_menu", { value: JSON.stringify({ a: "ask", q: id, i: 0 }), user: root }));
+		const r3 = await rev();
+		await measure("admin question_remove", () => admin.act("/quizzes", "question_remove", { value: { q: id, i: 0, r: r3 }, user: root }));
+		const r4 = await rev();
+		await measure("admin quiz_delete", () => admin.act("/quizzes", "quiz_delete", { value: { q: id, r: r4 }, user: root }));
+	});
+
+	it("lists, erase and dashboard card", async () => {
+		const admin = s.rt.admin;
+		const page = await measure("admin page_load /enrollments (15 members)", () => admin.loadPage("/enrollments", { user: root }));
+		expect(page.blocks.find((b: Out) => b.type === "table").rows.filter((r: Out) => /^Member /.test(r.member))).toHaveLength(14);
+		await measure("admin enrollments_find (name, 520 members)", () => admin.submit("/enrollments", "enrollments_find", { find: "member 3" }, { user: root }));
+		await measure("admin enrollments_find (email)", () => admin.submit("/enrollments", "enrollments_find", { find: "m3@example.com" }, { user: root }));
+		await measure("admin page_load /results (15 members)", () => admin.loadPage("/results", { user: root }));
+		await measure("admin widget summary", () => admin.loadWidget("summary", { user: root }));
+		await measure("admin member_menu (asks first)", () => admin.act("/enrollments", "member_menu", { value: JSON.stringify({ m: "ben", n: "Ben" }), user: root }));
+		let done = false;
+		for (let round = 0; round < 20 && !done; round += 1) {
+			const out = await measure("admin member_erase (500 + 500 rows, each round)", () => admin.act("/enrollments", "member_erase", { value: { m: "ben", n: "Ben" }, user: root }));
+			done = out.toast.type === "success";
+		}
+		expect(done).toBe(true);
+		// The member route on a fresh 500 + 500.
+		const at = new Date().toISOString();
 		for (let i = 0; i < 500; i += 1) {
 			await s.rt.fixtures.plugin.storage("enrollments", `ben:c${i}`, { memberId: "ben", courseKey: `c${i}`, courseTitle: "", startedAt: at, updatedAt: at, completedAt: null, done: [] });
 			await s.rt.fixtures.plugin.storage("attempts", `ben:q${i}`, { memberId: "ben", quizId: `q${i}`, lessonKey: "", score: 0, total: 1, answers: [0], submittedAt: at });
 		}
-	}, 120_000);
-	afterAll(() => s.dispose());
-
-	it("public routes", async () => {
-		await measure("route outline (200 lessons)", () => s.get("outline", { course }));
-		await measure("route quiz (20 questions)", () => s.get("quiz", { quiz: "q20" }));
-	});
-
-	it("member routes", async () => {
-		expect((await measure("route enroll", () => s.post("enroll", { course }, ana))).ok).toBe(true);
-		await measure("route enroll (second time)", () => s.post("enroll", { course }, ana));
-		await measure("route completeLesson (not in outline)", () => s.post("completeLesson", { course, lesson: "nope" }, ana));
-		// 199 lessons already done, as a fixture, then the last one through the route.
-		const row = await s.rt.inspect.storage.get<Record<string, unknown>>("enrollments", `ana:${course}`);
-		await s.rt.fixtures.plugin.storage("enrollments", `ana:${course}`, { ...row, done: lessons.slice(0, 199).map((l) => l.id) });
-		const last = await measure("route completeLesson (last lesson of 200)", () => s.post("completeLesson", { course, lesson: lessons[199]!.id }, ana));
-		expect((last.enrollment as { completedAt: string | null }).completedAt).toBeTruthy();
-		await measure("route completeLesson (already done)", () => s.post("completeLesson", { course, lesson: lessons[0]!.id }, ana));
-		await measure("route submitQuiz (20 questions)", () => s.post("submitQuiz", { quiz: "q20", answers: Array(20).fill(2) }, ana));
-		let done = false;
+		done = false;
 		for (let round = 0; round < 20 && !done; round += 1) {
-			done = (await measure("route eraseMember (500 + 500 rows, each round)", () => s.post("eraseMember", {}, ben))).done === true;
+			done = (await measure("route eraseMember (500 + 500 rows, each round)", () => s.post("eraseMember", {}, member("ben")))).done === true;
 		}
 		expect(done).toBe(true);
-	});
+	}, 120_000);
 
-	it("admin pages", async () => {
-		await measure("admin page_load /outline", () => s.rt.admin.loadPage("/outline"));
-		await measure("admin page_load /quizzes", () => s.rt.admin.loadPage("/quizzes"));
+	it("MCP tool routes", async () => {
+		const got = await measure("tool getOutline", () => tool("getOutline", { course }));
+		const ids = got.lessons.map((l: { id: string }) => l.id).slice(0, 180);
+		const out = await measure("tool setOutline (15 new lessons)", () => tool("setOutline", { course, lessons: [...ids, ...loose.slice(1, 16)], rev: got.rev }));
+		expect(out.ok).toBe(true);
+		await measure("tool listQuizzes", () => tool("listQuizzes", {}));
+		const quiz = await measure("tool getQuiz", () => tool("getQuiz", { quiz: "q1" }));
+		const saved = await measure("tool saveQuiz (replace)", () => tool("saveQuiz", { quiz: "q1", title: "Replaced", questions: QUIZ.questions, rev: quiz.rev }));
+		await measure("tool deleteQuiz", () => tool("deleteQuiz", { quiz: "q1", rev: saved.quiz.rev }));
+		await measure("tool listEnrollments", () => tool("listEnrollments", {}));
+		await measure("tool listResults", () => tool("listResults", {}));
 	});
 
 	it("every entry point measured, none over the cap", () => {

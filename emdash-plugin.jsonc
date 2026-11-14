@@ -26,7 +26,11 @@
 	"admin": {
 		"pages": [
 			{ "path": "/outline", "label": "Course outline", "icon": "list" },
-			{ "path": "/quizzes", "label": "Quizzes", "icon": "check" }
-		]
+			{ "path": "/quizzes", "label": "Quizzes", "icon": "check" },
+			{ "path": "/enrollments", "label": "Enrollments", "icon": "users" },
+			{ "path": "/results", "label": "Quiz results", "icon": "chart" }
+		],
+		"widgets": [{ "id": "summary", "title": "Learnomy", "size": "half" }],
+		"editorPanels": [{ "id": "courses", "title": "Learnomy", "route": "panel", "collections": ["lms_lessons"] }]
 	}
 }

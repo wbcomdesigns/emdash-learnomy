@@ -28,7 +28,7 @@ export const question = z.discriminatedUnion("type", [
 export const quiz = z.object({
 	title: z.string().check(z.trim(), z.minLength(1), z.maxLength(200)),
 	lessonKey: z._default(z.string().check(z.maxLength(128)), ""),
-	questions: z.array(question).check(z.minLength(1), z.maxLength(MAX_QUESTIONS)),
+	questions: z.array(question).check(z.maxLength(MAX_QUESTIONS)),
 	updatedAt: z.string(),
 	rev: z.string(),
 });
@@ -40,6 +40,22 @@ export const outline = z.object({
 	updatedAt: z.string(),
 	rev: z.string(),
 });
+
+const rev = z.optional(z.string().check(z.maxLength(64)));
+const cursor = z.optional(z.string().check(z.maxLength(2000)));
+const find = z.optional(z.string().check(z.trim(), z.maxLength(80)));
+
+/* MCP tool and admin inputs (step 3). */
+export const setOutlineInput = z.object({ course: id, lessons: z.array(id).check(z.maxLength(MAX_OUTLINE_LESSONS)), rev });
+export const listQuizzesInput = z.object({ cursor });
+export const saveQuizInput = z.object({
+	quiz: z.optional(id),
+	title: z.string().check(z.trim(), z.minLength(1), z.maxLength(200)),
+	questions: z.array(question).check(z.maxLength(MAX_QUESTIONS)),
+	rev,
+});
+export const deleteQuizInput = z.object({ quiz: id, rev: z.string().check(z.maxLength(64)) });
+export const listInput = z.object({ cursor, find });
 
 export type Quiz = z.infer<typeof quiz>;
 export type Question = z.infer<typeof question>;
