@@ -7,8 +7,8 @@ Run on a standard EmDash 1.5 blog site (`npm create emdash@latest -- --template 
 - [ ] O1 Install from the registry: the capabilities screen lists only `content:read`, `users:read`, storage and kv. Install and activate cause no error and no disabled plugin.*
 - [ ] O2 Seed creates `lms_courses`, `lms_lessons` and `lms_course_category`; a site with its own `courses` collection is untouched.
 - [ ] O3 Create a course: title, excerpt, body, access Open or Members, category, cover image. Publish.
-- [ ] O4 Create three lessons, pick the course in the editor, set order 1-3. After save each lesson has `course_key` set without typing an id.*
-- [ ] O5 Change a lesson's course in the picker: `course_key` follows.
+- [ ] O4 Create three lessons. On Course outline pick the course by title, add the lessons by title, reorder them, save. The site shows them in that order. No id is typed or shown anywhere.*
+- [ ] O5 Unpublish a lesson in the outline: the outline marks it, the site hides it; a second tab saving the same outline is refused (version token).
 - [ ] O6 Quizzes page empty state shows Create quiz. Create a quiz with one choice question (four answers) and one true/false question; edit a question; a 21st question is refused with a clear message.
 - [ ] O7 Two tabs edit the same quiz: the second save is refused (version token) and says why.
 - [ ] O8 Lesson editor panel lists quizzes by title; pick one; the lesson saves `quiz_id`; never shows an id.
