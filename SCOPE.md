@@ -1,6 +1,6 @@
 # Learnomy for EmDash: scope
 
-**Status: LOCKED on 2026-11-15; amended the same day by the owner (Course outline page, issue #1).** Decided with the owner on 2026-11-14 and 2026-11-15 after an audit of the 2026-10-15 draft against the EmDash 1.5 docs and source, and three proving spikes on a fresh EmDash 1.5.0 lab (`~/code/emdash-lab-learnomy`, report `~/work-artifacts/scratch/learnomy-spikes-report.md` and `learnomy-signup-spike.md`). An agent does not add options, change decisions, or move items in or out. If an item cannot be built as written, stop, say why on its issue, and wait for the owner.
+**Status: LOCKED on 2026-11-15; amended the same day by the owner (Course outline page, issue #1; presentation, agents and dashboard sections).** Decided with the owner on 2026-11-14 and 2026-11-15 after an audit of the 2026-10-15 draft against the EmDash 1.5 docs and source, and three proving spikes on a fresh EmDash 1.5.0 lab (`~/code/emdash-lab-learnomy`, report `~/work-artifacts/scratch/learnomy-spikes-report.md` and `learnomy-signup-spike.md`). An agent does not add options, change decisions, or move items in or out. If an item cannot be built as written, stop, say why on its issue, and wait for the owner.
 
 Every recommendation below is tagged **P** (proven in one of our plugins or a spike), **D** (EmDash docs or source say it works, not yet built by us) or **step 1** (proved in plan step 1 before anything depends on it).
 
@@ -32,6 +32,32 @@ A basic, free LMS for any EmDash site: courses and lessons written in EmDash's o
 | Reviews, discussion, polls, search | Reviews through WB Reviews on `lms_courses`; discussion through EmDash core comments; polls through WB Polls; search is EmDash core (course titles and excerpts; lesson bodies are not searchable) |
 | Registry install | The whole product |
 | Tracking | GitHub issues on `wbcomdesigns/emdash-learnomy`, milestone `0.1.0` |
+
+## Presentation (owner, 2026-11-15: "presentation is key")
+
+The kit is the product people see, so it is designed, not just wired.
+
+- **Any EmDash theme.** The kit works on every template `create-emdash` ships, and on the Fieldnote model site. It inherits the site's font, text colour, link colour, radius and spacing from the theme's own CSS custom properties, with safe fallbacks. It never ships a font, a reset or global selectors. All kit styles live under `.learnomy` in one file, `learnomy.css`, built on `--learnomy-*` tokens.
+- **Owners can improve it.** They restyle by overriding `--learnomy-*` tokens (documented, with a table), change any wording in `learnomy-strings.ts`, and change markup in the copied `.astro` files. Every element carries a `data-learnomy-*` hook for site CSS and scripts. A "Make it yours" guide shows all three, with before and after screenshots.
+- **Screens:**
+  - **Catalog:** a responsive card grid with cover image (aspect-ratio box, no layout shift), category, title, excerpt, lesson count, an Open or Members badge, and the member's progress when signed in. Filter by category.
+  - **Course:** a header with cover, title, excerpt, lesson count and the primary action (Enroll, Continue, or Review when finished), a progress bar for members, the body, then the ordered lesson list with done, current and to-do states.
+  - **Lesson:** the reading column at a comfortable measure (about 65-75 characters), the course outline beside it on wide screens and collapsible above it under 768px, Mark complete, previous and next lesson, and "lesson 3 of 8".
+  - **Quiz:** one fieldset per question with large radio targets, a clear submit, then the score with each question marked right or wrong (shown after scoring, never before).
+  - **Your courses:** compact rows with progress and Continue.
+- **Quality bar:** every screen at 1440, 768 and 390, light and dark (theme or system), keyboard and screen reader (landmarks, `aria-current` on the current lesson, a live region for progress and score), tap targets at least 40px, and contrast AA on every template. Judged by Reading screenshots on at least three templates.
+
+## Agents ready (owner, 2026-11-15)
+
+- **Courses and lessons** are ordinary EmDash entries, so EmDash's own MCP server and API already let an agent create, edit, publish and schedule them (`content_create` and the rest on `lms_courses` and `lms_lessons`). The docs show how.
+- **Outlines and quizzes** live in plugin storage, so Learnomy declares MCP tools on its private admin routes (EmDash 1.5 plugin MCP tools: `creating-plugins/references/api-routes.md`, "Expose a route as an MCP tool"): `getOutline`, `setOutline`, `listQuizzes`, `getQuiz`, `saveQuiz`, `deleteQuiz` (destructive), `listEnrollments`, `listResults`. Each has an input schema, an explicit route permission, and `destructive: true` where it deletes or overwrites. The admin turns plugin MCP tools on after installing; the docs say how, and which token scope (`mcp:tools:<pluginId>`) to give.
+- **Machine-readable pages:** schema.org `Course` on course pages, with `hasPart` lessons; clean headings; no lesson body in Members page HTML.
+- **An agent guide** (`docs/agents.md`): how to build a whole course with agents end to end, in one flow.
+- If the input schemas push a bundle file past 100 KB, say so on the issue with the measured size before trimming anything.
+
+## Owners work in the EmDash dashboard
+
+Everything an owner does happens in the EmDash admin, with no code. Courses and lessons are written in EmDash's editor under their own menu entries (seed labels "Courses", "Lessons", "Course categories"). The Course outline and Quizzes pages and the dashboard card live in Learnomy's admin section. The dashboard card has "New course" and "Course outline" links. The lesson editor panel shows which courses the lesson is in, with a link to each outline, and picks the lesson's quiz by title.
 
 ## Records
 

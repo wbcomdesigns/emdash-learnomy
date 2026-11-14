@@ -15,7 +15,8 @@ Run on a standard EmDash 1.5 blog site (`npm create emdash@latest -- --template 
 - [ ] O9 Delete a quiz attached to a lesson: the lesson shows "No quiz on this lesson" on the site, no error.
 - [ ] O10 Enrollments list: member names (not ids), 25 rows, Find by name, Next/Previous, empty state.
 - [ ] O11 Quiz results list: names, score, date, same paging, empty state.
-- [ ] O12 Dashboard card shows courses, enrollments and attempts counts.
+- [ ] O12 Dashboard card shows courses, enrollments and attempts counts, with New course and Course outline links.
+- [ ] O15 Lesson editor panel shows the courses the lesson is in, each linking to its outline.
 - [ ] O13 Erase one member: confirm once, all their enrollments and attempts gone, lists update.
 - [ ] O14 Invite a member (Users > Invite user, role Subscriber) following the "Let members join" guide; the member signs in.
 
@@ -37,6 +38,19 @@ Run on a standard EmDash 1.5 blog site (`npm create emdash@latest -- --template 
 - [ ] M5 Take the quiz: score shows; answers stay if the save fails; resubmit replaces the old score.*
 - [ ] M6 Your courses (mounted on the site's account page): empty state, list with progress, failed state.
 - [ ] M7 Erase my data: asks once, then confirms; Your courses is empty afterwards.
+
+## Presentation
+
+- [ ] P1 Catalog, course, lesson, quiz and Your courses look finished on at least three `create-emdash` templates and on Fieldnote: font, colours and spacing come from the theme; no broken layout at 1440, 768, 390; light and dark.
+- [ ] P2 Override three `--learnomy-*` tokens and one string per the Make it yours guide: the change shows everywhere, nothing else on the site changes.
+- [ ] P3 Keyboard only and screen reader: the whole member path works, the current lesson has `aria-current`, the score and progress are announced.
+- [ ] P4 No layout shift from cover images; contrast AA on each template.
+
+## Agents
+
+- [ ] A1 With EmDash's MCP (token with content scopes) an agent creates a course and three lessons and publishes them.
+- [ ] A2 After the admin turns on Learnomy's MCP tools, an agent with `mcp:tools:<pluginId>` sets the outline and saves a quiz; the site shows both. `deleteQuiz` is marked destructive.
+- [ ] A3 Course page JSON-LD validates as `Course` with lessons in `hasPart`.
 
 ## Budget and build
 
