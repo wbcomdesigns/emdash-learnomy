@@ -32,8 +32,7 @@
 			"fields": [
 				{ "slug": "title", "label": "Title", "type": "string", "required": true },
 				{ "slug": "excerpt", "label": "Excerpt (for search engines, never the lesson text)", "type": "text" },
-				{ "slug": "content", "label": "Content", "type": "portableText" },
-				{ "slug": "quiz_id", "label": "Quiz", "type": "string" }
+				{ "slug": "content", "label": "Content", "type": "portableText" }
 			]
 		}
 	],

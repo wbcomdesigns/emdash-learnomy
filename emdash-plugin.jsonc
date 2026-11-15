@@ -20,7 +20,7 @@
 	"storage": {
 		"outlines": { "indexes": ["updatedAt"] },
 		"enrollments": { "indexes": [["courseKey", "startedAt"], ["memberId", "updatedAt"]] },
-		"quizzes": { "indexes": ["updatedAt"] },
+		"quizzes": { "indexes": ["updatedAt", "lessonKey"] },
 		"attempts": { "indexes": [["quizId", "submittedAt"], ["memberId", "submittedAt"]] }
 	},
 	"admin": {

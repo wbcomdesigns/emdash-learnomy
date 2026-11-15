@@ -285,10 +285,22 @@ async function renderQuiz(ctx: Ctx, id: string, quiz: Quiz | null, editing: numb
 		},
 	}));
 	const full = row.questions.length >= MAX_QUESTIONS;
+	const lesson = row.lessonKey ? await ctx.content!.get("lms_lessons", row.lessonKey).catch(() => null) : null;
+	const lessonLine = !row.lessonKey
+		? "Not on a lesson yet. Visitors see a quiz only on its lesson."
+		: lesson
+			? `On the lesson "${titleOf(lesson, "Untitled lesson")}"${lesson.status === "published" ? "" : " (not published, so visitors do not see the quiz yet)"}.`
+			: "Its lesson was deleted. Choose another lesson.";
 	return {
 		blocks: [
 			header(`Quiz: ${row.title}`),
 			note(`${row.questions.length} of ${MAX_QUESTIONS} questions. Visitors never see the correct answers before they submit.`),
+			{
+				type: "section",
+				text: lessonLine,
+				accessory: button(row.lessonKey ? "Change lesson" : "Choose lesson", "quiz_lessons", { q: id }, row.lessonKey ? undefined : "primary"),
+			},
+			...(row.lessonKey ? [actionsRow(button("Take it off the lesson", "quiz_lesson_set", { q: id, l: "", r: row.rev }))] : []),
 			...(asking !== undefined && row.questions[asking]
 				? [
 						{ type: "banner", variant: "alert", title: `Remove question ${asking + 1}?`, description: `"${row.questions[asking]!.prompt}" is removed from this quiz. Results already saved keep their score.` },
@@ -323,6 +335,50 @@ async function renderQuiz(ctx: Ctx, id: string, quiz: Quiz | null, editing: numb
 				button("All quizzes", "quizzes_page", {}),
 				button("Delete quiz", "quiz_delete", { q: id, r: row.rev }, "danger", confirmBox("Delete this quiz?", `Delete "${row.title}"? Lessons that use it show no quiz, and its results stay in Quiz results.`, "Delete")),
 			),
+		],
+		...(toast ? { toast } : {}),
+	};
+}
+
+/** Lessons by title for a quiz to sit on; lessons that already have a quiz say which. Three calls. */
+async function renderQuizLessons(ctx: Ctx, id: string, view: View, toast?: Toast): Promise<BlockResponse> {
+	const [row, page] = await Promise.all([
+		getQuiz(ctx, id),
+		ctx.content!.list("lms_lessons", { orderBy: { title: "asc" }, limit: COURSE_PAGE, ...(view.at ? { cursor: view.at } : {}) }),
+	]);
+	if (!row) return renderQuizzes(ctx, {}, bad("That quiz no longer exists."));
+	const taken = page.items.length
+		? await ctx.storage.quizzes!.query({ where: { lessonKey: { in: page.items.map((item) => item.id) } }, limit: 100 })
+		: { items: [] };
+	const holder = new Map(taken.items.map((item) => [asString(asRecord(item.data).lessonKey), { id: item.id, title: asString(asRecord(item.data).title) }]));
+	const rows = page.items.map((item) => {
+		const has = holder.get(item.id);
+		return {
+			lesson: titleOf(item, "Untitled lesson"),
+			status: statusBadge(item.status),
+			quiz: has ? (has.id === id ? "This quiz" : has.title || "Another quiz") : "",
+			pick: has ? null : button("Use this lesson", "quiz_lesson_set", { q: id, l: item.id, r: row.rev }),
+		};
+	});
+	return {
+		blocks: [
+			header(`Choose a lesson for ${row.title}`),
+			note("Each lesson has one quiz. A lesson that already has one says which."),
+			rows.length === 0
+				? { type: "empty", title: "No lessons yet", description: "Write lessons under Lessons first." }
+				: {
+						type: "table",
+						page_action_id: "quiz_lessons",
+						columns: [
+							{ key: "lesson", label: "Lesson" },
+							{ key: "status", label: "Status", format: "badge" },
+							{ key: "quiz", label: "Quiz" },
+							{ key: "pick", label: "Choose", format: "element" },
+						],
+						rows,
+					},
+			...pager("quiz_lessons", view, page.hasMore ? page.cursor : undefined, { q: id }),
+			actionsRow(button("Back to the quiz", "quiz_open", { q: id }, "primary")),
 		],
 		...(toast ? { toast } : {}),
 	};
@@ -481,12 +537,13 @@ async function renderWidget(ctx: Ctx): Promise<BlockResponse> {
 	]);
 	return {
 		blocks: [
+			// A fields list, not stats cards: three stat cards overflow a half-width card at 390.
 			{
-				type: "stats",
-				items: [
-					{ label: "Courses", value: courses.hasMore ? "100+" : courses.items.length, description: "published" },
-					{ label: "Enrollments", value: enrollments },
-					{ label: "Results", value: attempts, description: "quiz scores" },
+				type: "fields",
+				fields: [
+					{ label: "Published courses", value: courses.hasMore ? "100+" : String(courses.items.length) },
+					{ label: "Enrollments", value: String(enrollments) },
+					{ label: "Quiz results", value: String(attempts) },
 				],
 			},
 			actionsRow(
@@ -501,6 +558,8 @@ async function renderWidget(ctx: Ctx): Promise<BlockResponse> {
 
 /** The course the lesson panel asked to open, kept for the next Course outline page load. */
 export const openKey = (user: string) => `state:open:${user}`;
+/** The quiz the lesson panel asked to open, kept for the next Quizzes page load. */
+export const openQuizKey = (user: string) => `state:openquiz:${user}`;
 
 export async function handleAdmin(input: unknown, ctx: Ctx, user?: User): Promise<BlockResponse> {
 	const raw = asRecord(input);
@@ -511,7 +570,14 @@ export async function handleAdmin(input: unknown, ctx: Ctx, user?: User): Promis
 	if (type === "page_load") {
 		const page = asString(raw.page);
 		if (page === "widget:summary") return renderWidget(ctx);
-		if (page === "/quizzes") return renderQuizzes(ctx, {});
+		if (page === "/quizzes") {
+			const quiz = user ? await ctx.kv.get<string>(openQuizKey(user.id)) : null;
+			if (quiz && user) {
+				await ctx.kv.delete(openQuizKey(user.id));
+				return renderQuiz(ctx, quiz, null, null);
+			}
+			return renderQuizzes(ctx, {});
+		}
 		if (page === "/enrollments") return renderEnrollments(ctx, {});
 		if (page === "/results") return renderResults(ctx, {});
 		if (user) {
@@ -554,6 +620,14 @@ export async function handleAdmin(input: unknown, ctx: Ctx, user?: User): Promis
 			return renderQuizzes(ctx, viewOf(value));
 		case "quiz_open":
 			return renderQuiz(ctx, asString(value.q), null, null);
+		case "quiz_lessons":
+			return renderQuizLessons(ctx, asString(value.q), viewOf(value));
+		case "quiz_lesson_set": {
+			const lesson = asString(value.l);
+			const result = await writeQuiz(ctx, asString(value.q), asString(value.r), (current) => ({ ...current!, lessonKey: lesson }));
+			if (!result.ok) return lesson ? renderQuizLessons(ctx, asString(value.q), {}, failToast(result)) : renderQuiz(ctx, asString(value.q), null, null, failToast(result));
+			return renderQuiz(ctx, result.id, result.quiz, null, ok(lesson ? "The quiz is on that lesson now." : "The quiz is off its lesson."));
+		}
 		case "question_menu": {
 			let picked: Record<string, unknown> = {};
 			try {

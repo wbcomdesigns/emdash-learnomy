@@ -3,13 +3,13 @@ import {
 	lessonInput,
 	MAX_DONE,
 	quiz as quizSchema,
-	quizInput,
+	lessonQuizInput,
 	submitInput,
 	type Attempt,
 	type Enrollment,
 	type Quiz,
 } from "./schemas";
-import { BAD_INPUT, type Ctx, fail, nowIso, parse } from "./lib/common";
+import { BAD_INPUT, type Ctx, fail, nowIso, parse, titleOf } from "./lib/common";
 import { getOutline as loadOutline } from "./lib/outlines";
 import { asRecord, asString } from "./util";
 
@@ -20,20 +20,42 @@ const SIGN_IN = fail("SIGN_IN_REQUIRED", "Sign in to continue.");
 const enrollmentId = (memberId: string, courseKey: string) => `${memberId}:${courseKey}`;
 
 /** null: no quiz; "invalid": a stored row that does not match the schema; "empty": no questions yet. */
-async function loadQuiz(ctx: Ctx, quizId: string): Promise<Quiz | null | "invalid" | "empty"> {
-	const row = await ctx.storage.quizzes!.get(quizId);
-	if (row === null) return null;
+function classify(row: unknown): Quiz | null | "invalid" | "empty" {
+	if (row === null || row === undefined) return null;
 	const parsed = parse(quizSchema, row);
 	if (!parsed) return "invalid";
 	return parsed.questions.length ? parsed : "empty";
 }
 
-/** Public. A course's ordered lessons (ids and titles), one storage get. The kit hides lessons that are not published. */
+const published = async (ctx: Ctx, collection: string, id: string) =>
+	(await ctx.content!.get(collection, id).catch(() => null))?.status === "published";
+
+/** Published lessons a public outline scan reads, 100 a page: the first 1,500 published lessons of a site. */
+const LESSON_PAGES = 15;
+
+/**
+ * Public. A published course's lessons in outline order, published lessons only, so a draft course or
+ * a draft lesson title never leaves the site. Lesson status comes from the published lessons list,
+ * 100 a page, stopping once every outline lesson is found: one page on most sites, 17 calls at most.
+ * ponytail: a site with more than 1,500 published lessons may hide an outline lesson the scan did not
+ * reach (hidden, never leaked); an index of published lessons is the upgrade if a site gets there.
+ */
 export async function outline(routeCtx: RouteCtx, ctx: Ctx) {
 	const input = parse(courseInput, routeCtx.input);
 	if (!input) return BAD_INPUT;
-	const row = await loadOutline(ctx, input.course);
-	return { ok: true, course: input.course, lessons: row?.lessons ?? [] };
+	const [live, row] = await Promise.all([published(ctx, "lms_courses", input.course), loadOutline(ctx, input.course)]);
+	if (!live) return { ok: true, course: input.course, lessons: [] };
+	const wanted = new Set((row?.lessons ?? []).map((lesson) => lesson.id));
+	const found = new Map<string, string>();
+	let cursor: string | undefined;
+	for (let page = 0; page < LESSON_PAGES && found.size < wanted.size; page += 1) {
+		const result = await ctx.content!.list("lms_lessons", { where: { status: "published" }, limit: 100, ...(cursor ? { cursor } : {}) });
+		for (const item of result.items) if (wanted.has(item.id)) found.set(item.id, titleOf(item, "Untitled lesson"));
+		if (!result.hasMore || !result.cursor) break;
+		cursor = result.cursor;
+	}
+	const lessons = (row?.lessons ?? []).filter((lesson) => found.has(lesson.id)).map((lesson) => ({ id: lesson.id, title: found.get(lesson.id)! }));
+	return { ok: true, course: input.course, lessons };
 }
 
 /** Member. Creates the enrollment row only when absent (compare-and-set with no revision). */
@@ -93,18 +115,23 @@ export async function completeLesson(routeCtx: RouteCtx, ctx: Ctx) {
 	return fail("BUSY", "Your progress changed in another tab. Try again.");
 }
 
-/** Public. The questions without the correct answers. */
+/** Public. A published lesson's quiz, found by the lesson, without the correct answers. Two calls. */
 export async function quiz(routeCtx: RouteCtx, ctx: Ctx) {
-	const input = parse(quizInput, routeCtx.input);
+	const input = parse(lessonQuizInput, routeCtx.input);
 	if (!input) return BAD_INPUT;
-	const row = await loadQuiz(ctx, input.quiz);
+	const [live, page] = await Promise.all([
+		published(ctx, "lms_lessons", input.lesson),
+		ctx.storage.quizzes!.query({ where: { lessonKey: input.lesson }, limit: 1 }),
+	]);
+	const item = live ? page.items[0] : undefined;
+	const row = classify(item?.data);
 	if (row === null) return fail("QUIZ_NOT_FOUND", "No quiz on this lesson.");
 	if (row === "invalid") return fail("QUIZ_INVALID", "This quiz cannot be shown. The site owner needs to fix it.");
 	if (row === "empty") return fail("QUIZ_EMPTY", "This quiz has no questions yet.");
 	return {
 		ok: true,
 		quiz: {
-			id: input.quiz,
+			id: item!.id,
 			title: row.title,
 			lessonKey: row.lessonKey,
 			questions: row.questions.map((q) => (q.type === "choice" ? { type: q.type, prompt: q.prompt, answers: q.answers } : { type: q.type, prompt: q.prompt })),
@@ -118,7 +145,9 @@ export async function submitQuiz(routeCtx: RouteCtx, ctx: Ctx) {
 	if (!member) return SIGN_IN;
 	const input = parse(submitInput, routeCtx.input);
 	if (!input) return BAD_INPUT;
-	const row = await loadQuiz(ctx, input.quiz);
+	let row = classify(await ctx.storage.quizzes!.get(input.quiz));
+	// Only the quiz of a published lesson takes answers, the same quizzes the public route shows.
+	if (row && typeof row === "object" && !(row.lessonKey && (await published(ctx, "lms_lessons", row.lessonKey)))) row = null;
 	if (row === null) return fail("QUIZ_NOT_FOUND", "No quiz on this lesson.");
 	if (row === "invalid") return fail("QUIZ_INVALID", "This quiz cannot be scored. The site owner needs to fix it.");
 	if (row === "empty") return fail("QUIZ_EMPTY", "This quiz has no questions yet.");

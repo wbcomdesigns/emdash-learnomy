@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { quiz as quizSchema } from "../src/schemas";
-import { ana, ben, courseWithOutline, openSite, QUIZ, type Site } from "./site";
+import { ana, ben, courseWithOutline, openSite, QUIZ, quizOnLesson, type Site } from "./site";
 
 let site: Site | undefined;
 afterEach(async () => {
@@ -17,6 +17,38 @@ describe("outline", () => {
 		expect(await s.get("outline", { course })).toEqual({ ok: true, course, lessons });
 		expect(await s.get("outline", { course: "nope" })).toEqual({ ok: true, course: "nope", lessons: [] });
 		expect((await s.get("outline", {})).error?.code).toBe("INVALID_INPUT");
+	});
+});
+
+describe("public routes never reveal drafts", () => {
+	it("outline answers nothing for a draft course", async () => {
+		const s = await open();
+		const draft = await s.entry("lms_courses", "Secret course", "draft");
+		const lesson = await s.entry("lms_lessons", "Secret lesson");
+		await s.rt.fixtures.plugin.storage("outlines", draft, { courseKey: draft, courseTitle: "Secret course", lessons: [{ id: lesson, title: "Secret lesson" }], updatedAt: "2026-11-15T00:00:00.000Z", rev: "r" });
+		const out = await s.get("outline", { course: draft });
+		expect(out.lessons).toEqual([]);
+		expect(JSON.stringify(out)).not.toContain("Secret");
+	});
+
+	it("outline leaves out draft lessons and their titles", async () => {
+		const s = await open();
+		const { course, lessons } = await courseWithOutline(s, 2);
+		const hidden = await s.entry("lms_lessons", "Unfinished draft lesson", "draft");
+		const row = await s.rt.inspect.storage.get<{ lessons: Array<{ id: string; title: string }> }>("outlines", course);
+		await s.rt.fixtures.plugin.storage("outlines", course, { ...row, lessons: [lessons[0], { id: hidden, title: "Unfinished draft lesson" }, lessons[1]] });
+		const out = await s.get("outline", { course });
+		expect(out.lessons).toEqual(lessons);
+		expect(JSON.stringify(out)).not.toContain("Unfinished");
+	});
+
+	it("quiz answers nothing for a draft lesson, and submitQuiz refuses it", async () => {
+		const s = await open();
+		const lesson = await quizOnLesson(s, "q1", "draft");
+		const out = await s.get("quiz", { lesson });
+		expect(out.error?.code).toBe("QUIZ_NOT_FOUND");
+		expect(JSON.stringify(out)).not.toContain("Pick C");
+		expect((await s.post("submitQuiz", { quiz: "q1", answers: [2, 0] }, ana)).error?.code).toBe("QUIZ_NOT_FOUND");
 	});
 });
 
@@ -95,14 +127,14 @@ describe("completeLesson", () => {
 describe("quiz", () => {
 	it("never sends the correct answers", async () => {
 		const s = await open();
-		await s.rt.fixtures.plugin.storage("quizzes", "q1", QUIZ);
-		const out = await s.get("quiz", { quiz: "q1" });
+		const lesson = await quizOnLesson(s);
+		const out = await s.get("quiz", { lesson });
 		expect(out).toEqual({
 			ok: true,
 			quiz: {
 				id: "q1",
 				title: "Check yourself",
-				lessonKey: "lesson-1",
+				lessonKey: lesson,
 				questions: [
 					{ type: "choice", prompt: "Pick C", answers: ["A", "B", "C", "D"] },
 					{ type: "true_false", prompt: "The sky is blue" },
@@ -110,14 +142,14 @@ describe("quiz", () => {
 			},
 		});
 		expect(JSON.stringify(out)).not.toContain("correct");
-		expect((await s.get("quiz", { quiz: "none" })).error?.code).toBe("QUIZ_NOT_FOUND");
+		expect((await s.get("quiz", { lesson: "none" })).error?.code).toBe("QUIZ_NOT_FOUND");
 	});
 
 	it("refuses a question type other than choice and true_false, and more than 20 questions", async () => {
 		const s = await open();
 		const essay = { ...QUIZ, questions: [{ type: "essay", prompt: "Write", correct: 0 }] };
-		await s.rt.fixtures.plugin.storage("quizzes", "bad", essay);
-		expect((await s.get("quiz", { quiz: "bad" })).error?.code).toBe("QUIZ_INVALID");
+		const lesson = await quizOnLesson(s, "bad", "published", essay);
+		expect((await s.get("quiz", { lesson })).error?.code).toBe("QUIZ_INVALID");
 		expect((await s.post("submitQuiz", { quiz: "bad", answers: [0] }, ana)).error?.code).toBe("QUIZ_INVALID");
 		expect(quizSchema.safeParse(essay).success).toBe(false);
 		const many = { ...QUIZ, questions: Array.from({ length: 21 }, () => QUIZ.questions[1]) };
@@ -129,7 +161,7 @@ describe("quiz", () => {
 describe("submitQuiz", () => {
 	it("scores on the server and replaces the member's attempt", async () => {
 		const s = await open();
-		await s.rt.fixtures.plugin.storage("quizzes", "q1", QUIZ);
+		await quizOnLesson(s);
 		expect(await s.post("submitQuiz", { quiz: "q1", answers: [1, 0] }, ana)).toEqual({ ok: true, score: 1, total: 2, right: [false, true] });
 		expect(await s.post("submitQuiz", { quiz: "q1", answers: [2, 0] }, ana)).toEqual({ ok: true, score: 2, total: 2, right: [true, true] });
 		const attempts = await s.rt.inspect.storage.list<{ score: number }>("attempts");
@@ -139,7 +171,7 @@ describe("submitQuiz", () => {
 
 	it("refuses missing answers and an out-of-range true/false answer", async () => {
 		const s = await open();
-		await s.rt.fixtures.plugin.storage("quizzes", "q1", QUIZ);
+		await quizOnLesson(s);
 		expect((await s.post("submitQuiz", { quiz: "q1", answers: [2] }, ana)).error?.code).toBe("ANSWER_EVERY_QUESTION");
 		expect((await s.post("submitQuiz", { quiz: "q1", answers: [2, 3] }, ana)).error?.code).toBe("ANSWER_EVERY_QUESTION");
 		expect((await s.post("submitQuiz", { quiz: "q1", answers: [9, 0] }, ana)).error?.code).toBe("INVALID_INPUT");

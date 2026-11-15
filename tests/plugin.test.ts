@@ -19,10 +19,10 @@ describe("manifest and admin", () => {
 		}
 	});
 
-	it("seeds courses and lessons; lessons carry no course field (the outline holds them)", async () => {
+	it("seeds courses and lessons; lessons carry no course or quiz field (outline and quiz rows hold the links)", async () => {
 		site = await openSite();
 		const fields = Object.fromEntries((await site.rt.inspect.schema()).map((c) => [c.slug, c.fields.map((f) => f.slug).sort()]));
 		expect(fields.lms_courses).toEqual(["access", "content", "cover", "excerpt", "title"]);
-		expect(fields.lms_lessons).toEqual(["content", "excerpt", "quiz_id", "title"]);
+		expect(fields.lms_lessons).toEqual(["content", "excerpt", "title"]);
 	});
 });

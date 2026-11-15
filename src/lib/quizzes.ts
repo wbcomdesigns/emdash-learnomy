@@ -15,10 +15,50 @@ export function questionProblem(q: Question): string | null {
 	return null;
 }
 
+/** The marker that holds a lesson for one quiz. Its compare-and-set is what makes "one quiz per lesson" hold under two saves at once. */
+const lessonMarker = (lesson: string) => `state:lesson-quiz:${lesson}`;
+
+/**
+ * Hold `lesson` for `quizId`, or refuse naming the quiz that has it. Two saves at once both try a
+ * create-only compare-and-set; one wins. A marker whose quiz no longer exists is taken over.
+ * ponytail: a marker can outlive its claim only if the quiz write and the release both fail; the
+ * quiz it names is then edited (or deleted) to free the lesson.
+ */
+async function claimLesson(ctx: Ctx, lesson: string, quizId: string): Promise<{ revision: string } | Fail> {
+	const key = lessonMarker(lesson);
+	const first = await ctx.kv.compareAndSet(key, null, quizId);
+	if (first.applied) return { revision: first.revision };
+	const current = await ctx.kv.getVersioned<string>(key);
+	if (!current || current.value === quizId) {
+		const again = current ? { applied: true as const, revision: current.revision } : await ctx.kv.compareAndSet(key, null, quizId);
+		if (again.applied) return { revision: again.revision };
+	} else {
+		const holder = await getQuiz(ctx, current.value);
+		if (holder) return fail("LESSON_HAS_QUIZ", `That lesson already has the quiz "${holder.title}". Each lesson has one quiz: choose another lesson, or move that quiz first.`);
+		const take = await ctx.kv.compareAndSet(key, current.revision, quizId);
+		if (take.applied) return { revision: take.revision };
+	}
+	return fail("LESSON_HAS_QUIZ", "Another quiz took that lesson just now. Choose another lesson.");
+}
+
+/** Free `lesson` if `quizId` holds it. */
+async function releaseLesson(ctx: Ctx, lesson: string, quizId: string): Promise<void> {
+	const current = await ctx.kv.getVersioned<string>(lessonMarker(lesson)).catch(() => null);
+	if (current?.value === quizId) await ctx.kv.compareAndDelete(lessonMarker(lesson), current.revision).catch(() => undefined);
+}
+
+/** The quiz of a lesson, through the lessonKey index. One call. */
+export async function quizForLesson(ctx: Ctx, lesson: string): Promise<{ id: string; quiz: Quiz } | null> {
+	const page = await ctx.storage.quizzes!.query({ where: { lessonKey: lesson }, limit: 1 });
+	const item = page.items[0];
+	const quiz = item ? parse(quizSchema, item.data) : null;
+	return item && quiz ? { id: item.id, quiz } : null;
+}
+
 /**
  * The one writer of quizzes. `change` gets the stored quiz (or null for a new one) and returns the
- * quiz to store or a refusal. A stale version token is refused. Two calls: getVersioned and the write
- * (one for a new quiz).
+ * quiz to store or a refusal. A stale version token is refused. Two calls (getVersioned, write); a
+ * lesson change adds the lesson check, its marker, and freeing the old one: eight at most.
  */
 export async function writeQuiz(
 	ctx: Ctx,
@@ -40,18 +80,34 @@ export async function writeQuiz(
 	}
 	const next = parse(quizSchema, { ...changed, updatedAt: nowIso(), rev: newRev() });
 	if (!next) return fail("INVALID_QUIZ", "Give the quiz a title under 200 characters, and keep each question and answer short.");
+	const before = row?.lessonKey ?? "";
+	let claim: { revision: string } | null = null;
+	if (next.lessonKey && next.lessonKey !== before) {
+		const lesson = await ctx.content!.get("lms_lessons", next.lessonKey).catch(() => null);
+		if (!lesson) return fail("LESSON_NOT_FOUND", "That lesson no longer exists. Choose another one.");
+		const held = await claimLesson(ctx, next.lessonKey, key);
+		if ("ok" in held) return held;
+		claim = held;
+	}
 	const write = await ctx.storage.quizzes!.compareAndSet(key, current?.revision ?? null, next);
-	return write.applied ? { ok: true, id: key, quiz: next } : STALE("quiz");
+	if (!write.applied) {
+		if (claim) await ctx.kv.compareAndDelete(lessonMarker(next.lessonKey), claim.revision).catch(() => undefined);
+		return STALE("quiz");
+	}
+	if (before && before !== next.lessonKey) await releaseLesson(ctx, before, key);
+	return { ok: true, id: key, quiz: next };
 }
 
-/** Delete with the version token the owner saw. Two calls. */
+/** Delete with the version token the owner saw, freeing its lesson. Four calls at most. */
 export async function deleteQuiz(ctx: Ctx, id: string, rev: string): Promise<{ ok: true; title: string } | Fail> {
 	const current = await ctx.storage.quizzes!.getVersioned(id);
 	if (!current) return fail("QUIZ_NOT_FOUND", "That quiz is already gone.");
 	const row = parse(quizSchema, current.value);
 	if ((row?.rev ?? "") !== rev) return STALE("quiz");
 	const done = await ctx.storage.quizzes!.compareAndDelete(id, current.revision);
-	return done.applied ? { ok: true, title: row?.title ?? "" } : STALE("quiz");
+	if (!done.applied) return STALE("quiz");
+	if (row?.lessonKey) await releaseLesson(ctx, row.lessonKey, id);
+	return { ok: true, title: row?.title ?? "" };
 }
 
 /** Newest first, 25 a page. One call. */

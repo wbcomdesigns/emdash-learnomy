@@ -1,4 +1,5 @@
-import { openKey, type BlockResponse } from "./admin";
+import { openKey, openQuizKey, type BlockResponse } from "./admin";
+import { quizForLesson } from "./lib/quizzes";
 import { type Ctx } from "./lib/common";
 import { asRecord, asString } from "./util";
 
@@ -25,7 +26,7 @@ async function coursesOf(ctx: Ctx, lesson: string): Promise<{ courses: Array<{ i
 	return { courses, partial: true };
 }
 
-/** The lesson editor panel: the courses this lesson is in, each opening its outline. */
+/** The lesson editor panel: the courses this lesson is in, each opening its outline, and the lesson's quiz. */
 export async function handlePanel(routeCtx: RouteCtx, ctx: Ctx): Promise<BlockResponse> {
 	const lesson = routeCtx.ui?.entry?.id;
 	if (!lesson) return { blocks: [{ type: "banner", variant: "default", title: "Save the lesson first", description: "Then add it to a course on the Course outline page." }] };
@@ -35,7 +36,12 @@ export async function handlePanel(routeCtx: RouteCtx, ctx: Ctx): Promise<BlockRe
 		if (course && routeCtx.user) await ctx.kv.set(openKey(routeCtx.user.id), course);
 		return { blocks: [], navigate: { kind: "plugin-page", path: "/outline" } };
 	}
-	const { courses, partial } = await coursesOf(ctx, lesson);
+	if (asString(raw.type) === "block_action" && asString(raw.action_id) === "open_quiz") {
+		const quiz = asString(asRecord(raw.value).q);
+		if (quiz && routeCtx.user) await ctx.kv.set(openQuizKey(routeCtx.user.id), quiz);
+		return { blocks: [], navigate: { kind: "plugin-page", path: "/quizzes" } };
+	}
+	const [{ courses, partial }, quiz] = await Promise.all([coursesOf(ctx, lesson), quizForLesson(ctx, lesson)]);
 	const blocks: Array<Record<string, unknown>> = courses.length
 		? [
 				{ type: "context", text: courses.length === 1 ? "This lesson is in one course:" : `This lesson is in ${courses.length} courses:` },
@@ -46,5 +52,11 @@ export async function handlePanel(routeCtx: RouteCtx, ctx: Ctx): Promise<BlockRe
 				{ type: "actions", elements: [{ type: "button", label: "Open Course outline", action_id: "open_outline", value: {} }] },
 			];
 	if (partial) blocks.push({ type: "context", text: "Checked the 500 most recently changed course outlines." });
+	blocks.push({ type: "divider" });
+	blocks.push(
+		quiz
+			? { type: "section", text: `Quiz: ${quiz.quiz.title}`, accessory: { type: "button", label: "Edit quiz", action_id: "open_quiz", value: { q: quiz.id } } }
+			: { type: "section", text: "No quiz on this lesson. Give it one on the Quizzes page.", accessory: { type: "button", label: "Open Quizzes", action_id: "open_quiz", value: {} } },
+	);
 	return { blocks };
 }

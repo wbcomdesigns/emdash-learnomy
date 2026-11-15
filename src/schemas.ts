@@ -10,6 +10,8 @@ const id = z.string().check(z.trim(), z.minLength(1), z.maxLength(128));
 export const courseInput = z.object({ course: id });
 export const lessonInput = z.object({ course: id, lesson: id });
 export const quizInput = z.object({ quiz: id });
+/** The public quiz route finds a lesson's quiz by the lesson. */
+export const lessonQuizInput = z.object({ lesson: id });
 export const submitInput = z.object({ quiz: id, answers: z.array(z.int().check(z.minimum(0), z.maximum(3))).check(z.maxLength(20)) });
 
 export const MAX_QUESTIONS = 20;
@@ -52,6 +54,8 @@ export const saveQuizInput = z.object({
 	quiz: z.optional(id),
 	title: z.string().check(z.trim(), z.minLength(1), z.maxLength(200)),
 	questions: z.array(question).check(z.maxLength(MAX_QUESTIONS)),
+	/** The lesson this quiz belongs to; "" detaches it, absent keeps it. One quiz per lesson. */
+	lesson: z.optional(z.union([id, z.literal("")])),
 	rev,
 });
 export const deleteQuizInput = z.object({ quiz: id, rev: z.string().check(z.maxLength(64)) });

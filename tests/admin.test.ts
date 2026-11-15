@@ -123,6 +123,65 @@ describe("Quizzes page", () => {
 	});
 });
 
+describe("A quiz picks its lesson", () => {
+	it("picks a lesson by title, refuses a second quiz on it, and the lesson panel shows and opens the quiz", async () => {
+		const s = (site = await openSite());
+		const lesson = await s.entry("lms_lessons", "Kneading");
+		const admin = s.rt.admin;
+		const make = async (title: string) => {
+			const page = (await admin.submit("/quizzes", "quiz_create", { title }, { user: root })) as R;
+			const id = (await s.rt.inspect.storage.list<{ title: string }>("quizzes")).find((q) => q.data.title === title)!.id;
+			return { page, id };
+		};
+		const first = await make("First quiz");
+		expect(visible(first.page)).toContain("Not on a lesson yet");
+		let pick = (await admin.act("/quizzes", "quiz_lessons", { value: { q: first.id }, user: root })) as R;
+		const row = table(pick)!.rows.find((r: { lesson: string }) => r.lesson === "Kneading");
+		let page = (await admin.act("/quizzes", "quiz_lesson_set", { value: row.pick.value, user: root })) as R;
+		expect(page.toast).toMatchObject({ type: "success" });
+		expect(visible(page)).toContain('On the lesson "Kneading"');
+		// A second quiz cannot take the same lesson: the list says which quiz has it, and a forced save is refused.
+		const second = await make("Second quiz");
+		pick = (await admin.act("/quizzes", "quiz_lessons", { value: { q: second.id }, user: root })) as R;
+		const taken = table(pick)!.rows.find((r: { lesson: string }) => r.lesson === "Kneading");
+		expect(taken).toMatchObject({ quiz: "First quiz", pick: null });
+		const rev = (await s.rt.inspect.storage.get<{ rev: string }>("quizzes", second.id))!.rev;
+		page = (await admin.act("/quizzes", "quiz_lesson_set", { value: { q: second.id, l: lesson, r: rev }, user: root })) as R;
+		expect(page.toast!.message).toContain('That lesson already has the quiz "First quiz"');
+		// The public route finds the quiz by its lesson; the panel shows it and opens it.
+		// Found by its lesson: a quiz without questions yet answers QUIZ_EMPTY, a lesson without one QUIZ_NOT_FOUND.
+		expect((await s.get("quiz", { lesson })).error?.code).toBe("QUIZ_EMPTY");
+		const panel = (await admin.loadEditorPanel("courses", "lms_lessons", lesson, { user: root })) as R;
+		expect(visible(panel)).toContain("Quiz: First quiz");
+		const go = (await admin.actEditorPanel("courses", "lms_lessons", lesson, "open_quiz", { value: { q: first.id }, user: root })) as R;
+		expect(go.navigate).toEqual({ kind: "plugin-page", path: "/quizzes" });
+		expect(visible((await admin.loadPage("/quizzes", { user: root })) as R)).toContain("Quiz: First quiz");
+		// Taking it off frees the lesson for the second quiz; deleting a quiz frees its lesson too.
+		const r1 = (await s.rt.inspect.storage.get<{ rev: string }>("quizzes", first.id))!.rev;
+		await admin.act("/quizzes", "quiz_lesson_set", { value: { q: first.id, l: "", r: r1 }, user: root });
+		page = (await admin.act("/quizzes", "quiz_lesson_set", { value: { q: second.id, l: lesson, r: rev }, user: root })) as R;
+		expect(page.toast).toMatchObject({ type: "success" });
+		const r2 = (await s.rt.inspect.storage.get<{ rev: string }>("quizzes", second.id))!.rev;
+		await admin.act("/quizzes", "quiz_delete", { value: { q: second.id, r: r2 }, user: root });
+		const r3 = (await s.rt.inspect.storage.get<{ rev: string }>("quizzes", first.id))!.rev;
+		expect((await admin.act("/quizzes", "quiz_lesson_set", { value: { q: first.id, l: lesson, r: r3 }, user: root })).toast).toMatchObject({ type: "success" });
+		expect(visible(panel)).not.toContain(lesson);
+	});
+
+	it("two saves putting different quizzes on one lesson at the same moment: exactly one wins", async () => {
+		const s = (site = await openSite());
+		const lesson = await s.entry("lms_lessons", "Contested");
+		const call = (input: unknown) => s.rt.transport.invokeRoute("tools/saveQuiz", input, { method: "POST", user: root } as never) as Promise<Record<string, any>>;
+		const results = await Promise.all([1, 2, 3, 4].map((n) => call({ title: `Racer ${n}`, questions: QUIZ.questions, lesson })));
+		expect(results.filter((r) => r.ok)).toHaveLength(1);
+		expect(results.filter((r) => r.error?.code === "LESSON_HAS_QUIZ")).toHaveLength(3);
+		const onLesson = (await s.rt.inspect.storage.list<{ lessonKey: string }>("quizzes")).filter((q) => q.data.lessonKey === lesson);
+		expect(onLesson).toHaveLength(1);
+		expect(onLesson[0]!.id).toBe(results.find((r) => r.ok)!.id);
+		expect((await call({ title: "Lost lesson", questions: [], lesson: "missing" })).error.code).toBe("LESSON_NOT_FOUND");
+	});
+});
+
 describe("Enrollments and Quiz results", () => {
 	it("show names, find by name and email, page 15 at a time, and erase one member", async () => {
 		const s = (site = await openSite());
@@ -183,7 +242,7 @@ describe("Lesson panel and dashboard card", () => {
 		await courseWithOutline(s, 1);
 		await s.post("enroll", { course: (await s.rt.inspect.storage.list("outlines"))[0]!.id }, member("ana"));
 		const card = (await s.rt.admin.loadWidget("summary", { user: root })) as R;
-		expect(card.blocks[0]!.items.map((i: { label: string; value: unknown }) => [i.label, i.value])).toEqual([["Courses", 1], ["Enrollments", 1], ["Results", 0]]);
+		expect(card.blocks[0]!.fields.map((i: { label: string; value: unknown }) => [i.label, i.value])).toEqual([["Published courses", "1"], ["Enrollments", "1"], ["Quiz results", "0"]]);
 		expect(card.blocks[1]!.elements.map((e: { label: string }) => e.label)).toEqual(["New course", "Course outline"]);
 	});
 });

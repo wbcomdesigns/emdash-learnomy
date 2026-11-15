@@ -50,3 +50,11 @@ export const QUIZ = {
 	updatedAt: "2026-11-15T00:00:00.000Z",
 	rev: "q1",
 };
+
+/** A quiz stored on a fresh lesson (published unless said), the way the Quizzes page leaves it. */
+export async function quizOnLesson(site: Site, id = "q1", status = "published", quiz: Record<string, unknown> = QUIZ) {
+	const lesson = await site.entry("lms_lessons", `Lesson for ${id}`, status);
+	await site.rt.fixtures.plugin.storage("quizzes", id, { ...quiz, lessonKey: lesson });
+	await site.rt.fixtures.plugin.kv(`state:lesson-quiz:${lesson}`, id);
+	return lesson;
+}

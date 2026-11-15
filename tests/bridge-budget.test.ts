@@ -3,7 +3,7 @@ import { countBridgeCalls } from "./bridge-count";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { ana, courseWithOutline, member, openSite, QUIZ, type Site } from "./site";
+import { ana, courseWithOutline, member, openSite, QUIZ, quizOnLesson, type Site } from "./site";
 
 /** Learnomy's cap per entry point (SCOPE: EmDash 1.5 gives 30 on Cloudflare; we keep 20). */
 const CAP = 20;
@@ -16,15 +16,17 @@ const CAP = 20;
  * wrote between its read and write: its ceiling is 5 (outline get, then getVersioned + compareAndSet
  * twice), never measured here because the test host runs one call at a time.
  */
+// The public outline reads published lessons 100 a page until it has found every outline lesson:
+// 2 + 15 = 17 at most (a site with 1,500 or more published lessons); measured here on 262.
 const MEASURED: Record<string, number> = {
-	"route outline (200 lessons)": 1,
-	"route quiz (20 questions)": 1,
+	"route outline (200 lessons, 262 published on the site)": 5,
+	"route quiz (20 questions)": 2,
 	"route enroll": 2,
 	"route enroll (second time)": 2,
 	"route completeLesson (last lesson of 200)": 3,
 	"route completeLesson (already done)": 2,
 	"route completeLesson (not in outline)": 1,
-	"route submitQuiz (20 questions)": 2,
+	"route submitQuiz (20 questions)": 3,
 	"route eraseMember (500 + 500 rows, each round)": 18,
 	"admin page_load /outline": 3,
 	"admin page_load /outline (opened from the lesson panel)": 14,
@@ -34,7 +36,7 @@ const MEASURED: Record<string, number> = {
 	"admin outline_put": 8,
 	"admin outline_up": 16,
 	"admin outline_remove": 16,
-	"admin page_load /quizzes": 1,
+	"admin page_load /quizzes": 2,
 	"admin quiz_create": 1,
 	"admin quiz_open": 1,
 	"admin question_add": 2,
@@ -42,7 +44,7 @@ const MEASURED: Record<string, number> = {
 	"admin question_save": 2,
 	"admin question_menu (remove asks first)": 1,
 	"admin question_remove": 2,
-	"admin quiz_delete": 3,
+	"admin quiz_delete": 5,
 	"admin page_load /enrollments (15 members)": 18,
 	"admin enrollments_find (name, 520 members)": 7,
 	"admin enrollments_find (email)": 4,
@@ -50,16 +52,22 @@ const MEASURED: Record<string, number> = {
 	"admin member_menu (asks first)": 0,
 	"admin member_erase (500 + 500 rows, each round)": 18,
 	"admin widget summary": 3,
-	"panel load (600 outlines)": 5,
+	"panel load (600 outlines)": 6,
 	"panel open_outline": 1,
 	"tool getOutline": 1,
 	"tool setOutline (15 new lessons)": 18,
 	"tool listQuizzes": 1,
 	"tool getQuiz": 1,
 	"tool saveQuiz (replace)": 2,
-	"tool deleteQuiz": 2,
+	"tool deleteQuiz": 4,
 	"tool listEnrollments": 18,
 	"tool listResults": 18,
+	"admin quiz_lessons (30 lessons)": 3,
+	"admin quiz_lesson_set (claims a lesson, frees the old one)": 7,
+	"admin quiz_lesson_set (lesson taken, refused)": 8,
+	"admin page_load /quizzes (opened from the lesson panel)": 4,
+	"panel open_quiz": 1,
+	"tool saveQuiz (new, on a lesson)": 3,
 };
 
 const seen = new Map<string, number>();
@@ -72,6 +80,7 @@ describe("bridge calls per entry point, worst case", () => {
 	let lessons: Array<{ id: string }> = [];
 	const loose: string[] = [];
 	const members: string[] = [];
+	let q20Lesson = "";
 
 	async function measure(name: string, call: () => Promise<unknown>): Promise<Out> {
 		const { result, calls } = await countBridgeCalls(call);
@@ -89,8 +98,8 @@ describe("bridge calls per entry point, worst case", () => {
 		const at = (n: number) => new Date(Date.UTC(2026, 10, 1) + n * 60_000).toISOString();
 		for (let i = 0; i < 600; i += 1) await s.rt.fixtures.plugin.storage("outlines", `other-${i}`, { courseKey: `other-${i}`, courseTitle: `Other ${i}`, lessons: [], updatedAt: at(-i), rev: "r" });
 		for (let i = 0; i < 520; i += 1) members.push((await s.rt.fixtures.user({ email: `m${i}@example.com`, name: `Member ${i}`, role: "subscriber" })).id);
-		await s.rt.fixtures.plugin.storage("quizzes", "q20", { ...QUIZ, questions: Array.from({ length: 20 }, () => QUIZ.questions[0]) });
-		await s.rt.fixtures.plugin.storage("quizzes", "q1", QUIZ);
+		q20Lesson = await quizOnLesson(s, "q20", "published", { ...QUIZ, questions: Array.from({ length: 20 }, () => QUIZ.questions[0]) });
+		await quizOnLesson(s, "q1");
 		for (let i = 0; i < 15; i += 1) {
 			await s.rt.fixtures.plugin.storage("enrollments", `${members[i]}:${course}`, { memberId: members[i], courseKey: course, courseTitle: "Course A", startedAt: at(1000 + i), updatedAt: at(1000 + i), completedAt: null, done: [] });
 			await s.rt.fixtures.plugin.storage("attempts", `${members[i]}:q1`, { memberId: members[i], quizId: "q1", lessonKey: "", score: 1, total: 2, answers: [0, 0], submittedAt: at(1000 + i) });
@@ -103,8 +112,8 @@ describe("bridge calls per entry point, worst case", () => {
 	afterAll(() => s.dispose());
 
 	it("public and member routes", async () => {
-		await measure("route outline (200 lessons)", () => s.get("outline", { course }));
-		await measure("route quiz (20 questions)", () => s.get("quiz", { quiz: "q20" }));
+		await measure("route outline (200 lessons, 262 published on the site)", () => s.get("outline", { course }));
+		await measure("route quiz (20 questions)", () => s.get("quiz", { lesson: q20Lesson }));
 		expect((await measure("route enroll", () => s.post("enroll", { course }, ana))).ok).toBe(true);
 		await measure("route enroll (second time)", () => s.post("enroll", { course }, ana));
 		await measure("route completeLesson (not in outline)", () => s.post("completeLesson", { course, lesson: "nope" }, ana));
@@ -152,7 +161,14 @@ describe("bridge calls per entry point, worst case", () => {
 		const r3 = await rev();
 		await measure("admin question_remove", () => admin.act("/quizzes", "question_remove", { value: { q: id, i: 0, r: r3 }, user: root }));
 		const r4 = await rev();
-		await measure("admin quiz_delete", () => admin.act("/quizzes", "quiz_delete", { value: { q: id, r: r4 }, user: root }));
+		await measure("admin quiz_lessons (30 lessons)", () => admin.act("/quizzes", "quiz_lessons", { value: { q: id }, user: root }));
+		await measure("admin quiz_lesson_set (claims a lesson, frees the old one)", async () => admin.act("/quizzes", "quiz_lesson_set", { value: { q: id, l: loose[20], r: await rev() }, user: root }));
+		await measure("admin quiz_lesson_set (claims a lesson, frees the old one)", async () => admin.act("/quizzes", "quiz_lesson_set", { value: { q: id, l: loose[21], r: await rev() }, user: root }));
+		await measure("admin quiz_lesson_set (lesson taken, refused)", async () => admin.act("/quizzes", "quiz_lesson_set", { value: { q: id, l: q20Lesson, r: await rev() }, user: root }));
+		await measure("panel open_quiz", () => admin.actEditorPanel("courses", "lms_lessons", loose[21]!, "open_quiz", { value: { q: id }, user: root }));
+		await measure("admin page_load /quizzes (opened from the lesson panel)", () => admin.loadPage("/quizzes", { user: root }));
+		const r5 = await rev();
+		await measure("admin quiz_delete", () => admin.act("/quizzes", "quiz_delete", { value: { q: id, r: r5 }, user: root }));
 	});
 
 	it("lists, erase and dashboard card", async () => {
@@ -189,6 +205,7 @@ describe("bridge calls per entry point, worst case", () => {
 		const out = await measure("tool setOutline (15 new lessons)", () => tool("setOutline", { course, lessons: [...ids, ...loose.slice(1, 16)], rev: got.rev }));
 		expect(out.ok).toBe(true);
 		await measure("tool listQuizzes", () => tool("listQuizzes", {}));
+		await measure("tool saveQuiz (new, on a lesson)", () => tool("saveQuiz", { title: "Agent quiz", questions: QUIZ.questions, lesson: loose[25] }));
 		const quiz = await measure("tool getQuiz", () => tool("getQuiz", { quiz: "q1" }));
 		const saved = await measure("tool saveQuiz (replace)", () => tool("saveQuiz", { quiz: "q1", title: "Replaced", questions: QUIZ.questions, rev: quiz.rev }));
 		await measure("tool deleteQuiz", () => tool("deleteQuiz", { quiz: "q1", rev: saved.quiz.rev }));
