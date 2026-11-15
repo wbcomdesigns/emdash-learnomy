@@ -13,7 +13,7 @@ import {
 	type Outline,
 	type Quiz,
 } from "./schemas";
-import { BAD_INPUT, type Ctx, fail, nowIso, parse, titleOf } from "./lib/common";
+import { BAD_INPUT, countProgress, type Ctx, fail, nowIso, parse, titleOf } from "./lib/common";
 import { coursesOf, getOutline as loadOutline } from "./lib/outlines";
 import { asRecord, asString } from "./util";
 
@@ -43,15 +43,26 @@ const LESSON_COURSE_PAGES = 10;
 type Item = { id: string; slug: string | null; data: unknown };
 
 /**
- * The published entries of a collection among `wanted`, read 100 a page from the published list and
- * stopping once every wanted id is found or after `pages` pages. One page on most sites.
- * ponytail: an entry past the last page read counts as not published (hidden, never leaked); an
- * index of published entries is the upgrade if a site gets that big.
+ * The published entries of a collection among `wanted`, in at most `pages` calls. The first call reads
+ * the first 100 published entries (on most sites that finds them all). Once the ids still missing fit
+ * in the calls left, each is looked up by id instead, so a draft, scheduled or deleted entry costs one
+ * call, not a scan of every page. Otherwise it keeps reading 100 a page.
+ * ponytail: with more missing ids than calls left, an entry past the last page read counts as not
+ * published (hidden, never leaked). EmDash 1.5 content.list cannot filter by id
+ * (emdash dist content-*.mjs findMany: status, authorId, locale, search, dates, bylines only).
  */
-async function findPublished(ctx: Ctx, collection: string, wanted: Set<string>, pages: number): Promise<Map<string, Item>> {
+export async function findPublished(ctx: Ctx, collection: string, wanted: Set<string>, pages: number): Promise<Map<string, Item>> {
 	const found = new Map<string, Item>();
 	let cursor: string | undefined;
 	for (let page = 0; page < pages && found.size < wanted.size; page += 1) {
+		const missing = [...wanted].filter((id) => !found.has(id));
+		if (page > 0 && missing.length <= pages - page) {
+			const items = await Promise.all(missing.map((id) => ctx.content!.get(collection, id).catch(() => null)));
+			items.forEach((item, i) => {
+				if (item?.status === "published") found.set(missing[i]!, item);
+			});
+			break;
+		}
 		const result = await ctx.content!.list(collection, { where: { status: "published" }, limit: 100, ...(cursor ? { cursor } : {}) });
 		for (const item of result.items) if (wanted.has(item.id)) found.set(item.id, item);
 		if (!result.hasMore || !result.cursor) break;
@@ -112,26 +123,35 @@ export async function catalog(routeCtx: RouteCtx, ctx: Ctx) {
 	return { ok: true, counts };
 }
 
+type Holder = { id: string; slug: string; title: string; access: "open" | "members" };
+
+/**
+ * The published courses a lesson is in, Open ones first. Calls: the outline scan (5 pages at most),
+ * then the published courses (10 at most): 15.
+ */
+async function holdersOf(ctx: Ctx, lesson: string): Promise<Holder[]> {
+	const { courses } = await coursesOf(ctx, lesson);
+	if (!courses.length) return [];
+	const found = await findPublished(ctx, "lms_courses", new Set(courses.map((c) => c.id)), LESSON_COURSE_PAGES);
+	const list = courses
+		.filter((c) => found.has(c.id))
+		.map((c): Holder => {
+			const item = found.get(c.id)!;
+			return { id: c.id, slug: item.slug ?? c.id, title: titleOf(item, "Untitled course"), access: asRecord(item.data).access === "open" ? "open" : "members" };
+		});
+	return list.sort((a, b) => Number(b.access === "open") - Number(a.access === "open"));
+}
+
 /**
  * Public. The published courses a published lesson is in, Open ones first, so a lesson page reached
  * without ?course= (search, sitemap, EmDash's own links) can pick its course. Calls: the lesson
- * beside the outline scan (5 pages at most), then the published courses (10 pages at most): 16.
+ * beside holdersOf: 16 at most.
  */
 export async function lessonCourses(routeCtx: RouteCtx, ctx: Ctx) {
 	const input = parse(lessonQuizInput, routeCtx.input);
 	if (!input) return BAD_INPUT;
-	const [live, { courses }] = await Promise.all([published(ctx, "lms_lessons", input.lesson), coursesOf(ctx, input.lesson)]);
-	if (!live || !courses.length) return { ok: true, courses: [] };
-	const found = await findPublished(ctx, "lms_courses", new Set(courses.map((c) => c.id)), LESSON_COURSE_PAGES);
-	const list = courses
-		.filter((c) => found.has(c.id))
-		.map((c) => {
-			const item = found.get(c.id)!;
-			const access = asRecord(item.data).access === "open" ? "open" : "members";
-			return { id: c.id, slug: item.slug ?? c.id, title: titleOf(item, "Untitled course"), access };
-		});
-	list.sort((a, b) => Number(b.access === "open") - Number(a.access === "open"));
-	return { ok: true, courses: list };
+	const [live, courses] = await Promise.all([published(ctx, "lms_lessons", input.lesson), holdersOf(ctx, input.lesson)]);
+	return { ok: true, courses: live ? courses : [] };
 }
 
 /** Member. The signed-in member's enrollment in one course, or null. One call. */
@@ -146,11 +166,16 @@ export async function progress(routeCtx: RouteCtx, ctx: Ctx) {
 
 /** Courses a member sees on Your courses: the most recently active first. */
 const MY_COURSES = 50;
+/** Calls myCourses may spend finding which of the member's courses and lessons are published. */
+const MY_COURSE_PAGES = 3;
+const MY_LESSON_PAGES = 14;
 
 /**
- * Member. The signed-in member's courses with progress, newest activity first. Progress counts done
- * lessons that are still in the outline, against the outline's length (what completeLesson finishes
- * on). Two calls: the member's enrollments and their outlines in one read.
+ * Member. The signed-in member's courses with progress, newest activity first. Progress is
+ * countProgress against the course's published outline lessons, the same count the course and lesson
+ * pages show. A course that is deleted or no longer published comes back with available: false and
+ * no link. Calls: the enrollments, their outlines in one read, then the published courses (3 at most)
+ * and the published lessons (14 at most): 19 at most, 4 on most sites.
  * ponytail: shows the 50 most recent; a "more" page if members ever take more than 50 courses.
  */
 export async function myCourses(routeCtx: RouteCtx, ctx: Ctx) {
@@ -158,19 +183,24 @@ export async function myCourses(routeCtx: RouteCtx, ctx: Ctx) {
 	if (!member) return SIGN_IN;
 	const page = await ctx.storage.enrollments!.query({ where: { memberId: member }, orderBy: { updatedAt: "desc" }, limit: MY_COURSES });
 	const rows = page.items.map((item) => item.data as Enrollment);
-	const outlines = rows.length ? await ctx.storage.outlines!.getMany(rows.map((row) => row.courseKey)) : new Map();
+	if (!rows.length) return { ok: true, items: [] };
+	const keys = [...new Set(rows.map((row) => row.courseKey))];
+	const [outlines, courses] = await Promise.all([ctx.storage.outlines!.getMany(keys), findPublished(ctx, "lms_courses", new Set(keys), MY_COURSE_PAGES)]);
+	const lessonsOf = new Map(keys.filter((key) => courses.has(key)).map((key) => [key, parse(outlineSchema, outlines.get(key))?.lessons.map((lesson) => lesson.id) ?? []]));
+	const wanted = new Set([...lessonsOf.values()].flat());
+	const found = wanted.size ? await findPublished(ctx, "lms_lessons", wanted, MY_LESSON_PAGES) : new Map();
 	const items = rows.map((row) => {
-		const lessons = parse(outlineSchema, outlines.get(row.courseKey))?.lessons ?? [];
-		const ids = new Set(lessons.map((lesson) => lesson.id));
+		const course = courses.get(row.courseKey);
+		const counted = countProgress(row.done, (lessonsOf.get(row.courseKey) ?? []).filter((id) => found.has(id)));
 		return {
 			course: row.courseKey,
-			slug: row.courseSlug ?? "",
-			title: row.courseTitle,
+			slug: course ? (course.slug ?? row.courseKey) : "",
+			title: course ? titleOf(course, row.courseTitle || "Untitled course") : row.courseTitle,
+			available: Boolean(course),
 			startedAt: row.startedAt,
 			updatedAt: row.updatedAt,
 			completedAt: row.completedAt,
-			done: row.done.filter((id) => ids.has(id)).length,
-			total: lessons.length,
+			...counted,
 		};
 	});
 	return { ok: true, items };
@@ -198,8 +228,17 @@ export async function courseGraph(page: Page, ctx: Ctx) {
 	if (!content || content.collection !== "lms_courses") return null;
 	const lessons = await publishedOutline(ctx, content.id);
 	if (!lessons) return null;
-	const url = page.canonical || page.url;
-	const origin = new URL(url).origin;
+	// Built from the page's own address (a relative canonical resolves against it), never from the
+	// site URL setting, which is empty until the owner sets it.
+	let url = "";
+	let origin = "";
+	try {
+		const at = new URL(page.canonical || page.url, page.url);
+		url = at.href;
+		origin = at.origin;
+	} catch {
+		return null;
+	}
 	const courseSlug = content.slug ?? content.id;
 	return {
 		kind: "jsonld" as const,
@@ -250,7 +289,11 @@ export async function enroll(routeCtx: RouteCtx, ctx: Ctx) {
 
 /**
  * Member. The only writer of progress. Refuses a member who is not enrolled and a lesson that is not
- * in the course outline. Sets completedAt when every lesson in the outline is done.
+ * in the course outline. Sets completedAt, once, when every published lesson in the outline is done:
+ * a draft, scheduled or deleted lesson in the outline does not hold the course open. completedAt is
+ * the first finish; screens show finished from countProgress, so a lesson added later reads as one
+ * more to do. Calls: the outline, the status of the outline lessons not yet done (15 at most, none
+ * when all are done), then getVersioned and compareAndSet, twice at most: 20 at most, 4 on most sites.
  */
 export async function completeLesson(routeCtx: RouteCtx, ctx: Ctx) {
 	const member = routeCtx.user?.id;
@@ -262,13 +305,20 @@ export async function completeLesson(routeCtx: RouteCtx, ctx: Ctx) {
 	if (!course?.lessons.some((lesson) => lesson.id === input.lesson)) {
 		return fail("LESSON_NOT_IN_COURSE", "That lesson is not part of this course.");
 	}
+	// Published status of the outline lessons left to do, looked up once: a retry only has fewer left.
+	let live: Map<string, Item> | null = null;
 	// Two tries: a second tab marking another lesson at the same moment changes the revision once.
 	for (let attempt = 0; attempt < 2; attempt += 1) {
 		const current = await ctx.storage.enrollments!.getVersioned(key);
 		if (!current) return fail("NOT_ENROLLED", "Enroll in this course first.");
 		const row = current.value as Enrollment;
 		const done = row.done.includes(input.lesson) ? row.done : [...row.done, input.lesson].slice(-MAX_DONE);
-		const finished = course.lessons.every((lesson) => done.includes(lesson.id));
+		let finished = false;
+		if (!row.completedAt) {
+			const left = course.lessons.map((lesson) => lesson.id).filter((id) => !done.includes(id));
+			live ??= left.length ? await findPublished(ctx, "lms_lessons", new Set(left), LESSON_PAGES) : new Map();
+			finished = !left.some((id) => live!.has(id));
+		}
 		const next: Enrollment = {
 			...row,
 			done,
@@ -282,17 +332,17 @@ export async function completeLesson(routeCtx: RouteCtx, ctx: Ctx) {
 	return fail("BUSY", "Your progress changed in another tab. Try again.");
 }
 
-/** Public. A published lesson's quiz, found by the lesson, without the correct answers. Two calls. */
-export async function quiz(routeCtx: RouteCtx, ctx: Ctx) {
-	const input = parse(lessonQuizInput, routeCtx.input);
-	if (!input) return BAD_INPUT;
-	const [live, page] = await Promise.all([
-		published(ctx, "lms_lessons", input.lesson),
-		ctx.storage.quizzes!.query({ where: { lessonKey: input.lesson }, limit: 1 }),
+/** A published lesson's quiz without the correct answers. `guest`: only for a lesson in a published Open course. */
+async function lessonQuiz(ctx: Ctx, lesson: string, guest: boolean) {
+	const [live, page, holders] = await Promise.all([
+		published(ctx, "lms_lessons", lesson),
+		ctx.storage.quizzes!.query({ where: { lessonKey: lesson }, limit: 1 }),
+		guest ? holdersOf(ctx, lesson) : null,
 	]);
 	const item = live ? page.items[0] : undefined;
 	const row = classify(item?.data);
 	if (row === null) return fail("QUIZ_NOT_FOUND", "No quiz on this lesson.");
+	if (holders && !holders.some((c) => c.access === "open")) return SIGN_IN;
 	if (row === "invalid") return fail("QUIZ_INVALID", "This quiz cannot be shown. The site owner needs to fix it.");
 	if (row === "empty") return fail("QUIZ_EMPTY", "This quiz has no questions yet.");
 	return {
@@ -304,6 +354,24 @@ export async function quiz(routeCtx: RouteCtx, ctx: Ctx) {
 			questions: row.questions.map((q) => (q.type === "choice" ? { type: q.type, prompt: q.prompt, answers: q.answers } : { type: q.type, prompt: q.prompt })),
 		},
 	};
+}
+
+/**
+ * Public. The quiz of a lesson that is in a published Open course; any other lesson answers
+ * SIGN_IN_REQUIRED, the same protection the lesson text has (signed-in members use memberQuiz).
+ * Public routes never see the caller (emdash http-route-dispatch: caller is undefined for a public
+ * route), hence two routes. Calls: 2 beside holdersOf: 17 at most.
+ */
+export async function quiz(routeCtx: RouteCtx, ctx: Ctx) {
+	const input = parse(lessonQuizInput, routeCtx.input);
+	return input ? lessonQuiz(ctx, input.lesson, true) : BAD_INPUT;
+}
+
+/** Member. The quiz of any published lesson, for a signed-in member. Two calls. */
+export async function memberQuiz(routeCtx: RouteCtx, ctx: Ctx) {
+	if (!routeCtx.user?.id) return SIGN_IN;
+	const input = parse(lessonQuizInput, routeCtx.input);
+	return input ? lessonQuiz(ctx, input.lesson, false) : BAD_INPUT;
 }
 
 /** Member. Scores on the server and replaces the member's attempt. Answers which questions were right, never the correct answers. */

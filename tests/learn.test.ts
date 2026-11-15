@@ -45,9 +45,10 @@ describe("public routes never reveal drafts", () => {
 	it("quiz answers nothing for a draft lesson, and submitQuiz refuses it", async () => {
 		const s = await open();
 		const lesson = await quizOnLesson(s, "q1", "draft");
-		const out = await s.get("quiz", { lesson });
+		const out = await s.get("memberQuiz", { lesson }, ana);
 		expect(out.error?.code).toBe("QUIZ_NOT_FOUND");
 		expect(JSON.stringify(out)).not.toContain("Pick C");
+		expect(JSON.stringify(await s.get("quiz", { lesson }))).not.toContain("Pick C");
 		expect((await s.post("submitQuiz", { quiz: "q1", answers: [2, 0] }, ana)).error?.code).toBe("QUIZ_NOT_FOUND");
 	});
 });
@@ -145,7 +146,7 @@ describe("kit reads: catalog, progress, myCourses", () => {
 		expect((await s.get("progress", { course: a.course }, ana)).enrollment).toMatchObject({ memberId: "ana", done: [a.lessons[1]!.id], courseSlug: "course-a" });
 		const mine = (await s.get("myCourses", {}, ana)).items as Array<Record<string, unknown>>;
 		expect(mine).toHaveLength(2);
-		expect(mine[0]).toMatchObject({ course: a.course, slug: "course-a", title: "Course A", done: 1, total: 3, completedAt: null });
+		expect(mine[0]).toMatchObject({ course: a.course, slug: "course-a", title: "Course A", available: true, done: 1, total: 3, finished: false, completedAt: null });
 		expect(mine[1]).toMatchObject({ course: b.course, slug: "course-b", done: 0, total: 2 });
 		expect(((await s.get("myCourses", {}, member("cara"))).items as unknown[])).toEqual([]);
 	});
@@ -158,6 +159,34 @@ describe("kit reads: catalog, progress, myCourses", () => {
 		const row = await s.rt.inspect.storage.get<{ lessons: unknown[] }>("outlines", a.course);
 		await s.rt.fixtures.plugin.storage("outlines", a.course, { ...row, lessons: [a.lessons[1]] });
 		expect(((await s.get("myCourses", {}, ana)).items as unknown[])[0]).toMatchObject({ done: 0, total: 1 });
+	});
+
+	it("myCourses counts published lessons only, the same count as the course page (L2, M2)", async () => {
+		const s = await open();
+		const a = await courseWithOutline(s, 2, "Course A");
+		const draft = await s.entry("lms_lessons", "Draft lesson", "draft");
+		const row = await s.rt.inspect.storage.get<Record<string, unknown>>("outlines", a.course);
+		await s.rt.fixtures.plugin.storage("outlines", a.course, { ...row, lessons: [...a.lessons, { id: draft, title: "Draft lesson" }] });
+		await s.post("enroll", { course: a.course }, ana);
+		await s.post("completeLesson", { course: a.course, lesson: a.lessons[0]!.id }, ana);
+		expect(((await s.get("myCourses", {}, ana)).items as unknown[])[0]).toMatchObject({ done: 1, total: 2, finished: false });
+		await s.post("completeLesson", { course: a.course, lesson: a.lessons[1]!.id }, ana);
+		expect(((await s.get("myCourses", {}, ana)).items as unknown[])[0]).toMatchObject({ done: 2, total: 2, finished: true });
+	});
+
+	it("myCourses labels a deleted or unpublished course instead of linking to it (L8)", async () => {
+		const s = await open();
+		const a = await courseWithOutline(s, 1, "Course A");
+		const b = await courseWithOutline(s, 1, "Course B");
+		await s.post("enroll", { course: a.course }, ana);
+		await s.post("enroll", { course: b.course }, ana);
+		const c = await courseWithOutline(s, 1, "Course C");
+		await s.post("enroll", { course: c.course }, ana);
+		await s.rt.actions.content.trash("lms_courses", a.course);
+		await s.rt.actions.content.unpublish("lms_courses", c.course);
+		const items = (await s.get("myCourses", {}, ana)).items as Array<Record<string, unknown>>;
+		expect(items.find((i) => i.course === b.course)).toMatchObject({ available: true, slug: "course-b" });
+		for (const gone of [a.course, c.course]) expect(items.find((i) => i.course === gone)).toMatchObject({ available: false, slug: "" });
 	});
 });
 
@@ -234,13 +263,25 @@ describe("completeLesson", () => {
 		expect(row?.done).toHaveLength(3);
 		expect(row?.completedAt).toBeTruthy();
 	});
+
+	it("finishes on the published lessons: a draft or deleted lesson in the outline does not hold the course open (M2)", async () => {
+		const s = await open();
+		const { course, lessons } = await courseWithOutline(s, 2);
+		const draft = await s.entry("lms_lessons", "Draft lesson", "draft");
+		const row = await s.rt.inspect.storage.get<Record<string, unknown>>("outlines", course);
+		await s.rt.fixtures.plugin.storage("outlines", course, { ...row, lessons: [...lessons, { id: draft, title: "Draft lesson" }, { id: "deleted-lesson", title: "Gone" }] });
+		await s.post("enroll", { course }, ana);
+		expect((await s.post("completeLesson", { course, lesson: lessons[0]!.id }, ana)).enrollment).toMatchObject({ completedAt: null });
+		const out = await s.post("completeLesson", { course, lesson: lessons[1]!.id }, ana);
+		expect((out.enrollment as { completedAt: string | null }).completedAt).toEqual(expect.any(String));
+	});
 });
 
 describe("quiz", () => {
 	it("never sends the correct answers", async () => {
 		const s = await open();
 		const lesson = await quizOnLesson(s);
-		const out = await s.get("quiz", { lesson });
+		const out = await s.get("memberQuiz", { lesson }, ana);
 		expect(out).toEqual({
 			ok: true,
 			quiz: {
@@ -254,14 +295,32 @@ describe("quiz", () => {
 			},
 		});
 		expect(JSON.stringify(out)).not.toContain("correct");
-		expect((await s.get("quiz", { lesson: "none" })).error?.code).toBe("QUIZ_NOT_FOUND");
+		expect((await s.get("memberQuiz", { lesson: "none" }, ana)).error?.code).toBe("QUIZ_NOT_FOUND");
+		expect((await s.get("memberQuiz", { lesson })).error?.code).toBe("SIGN_IN_REQUIRED");
+	});
+
+	it("is public only for a lesson in a published Open course; a guest gets sign-in for any other lesson (#9)", async () => {
+		const s = await open();
+		const lesson = await quizOnLesson(s);
+		const course = async (title: string, access: string, status = "published") =>
+			(await s.rt.fixtures.content("lms_courses", { data: { title, access }, slug: title.toLowerCase().replaceAll(" ", "-"), status } as never)).id as string;
+		const put = (id: string) => s.rt.fixtures.plugin.storage("outlines", id, { courseKey: id, courseTitle: "x", lessons: [{ id: lesson, title: "L" }], updatedAt: "2026-11-15T00:00:00.000Z", rev: "r" });
+		// In no course, in a Members course, in a draft Open course: the guest learns nothing about the questions.
+		for (const holder of [null, await course("Members course", "members"), await course("Draft open course", "open", "draft")]) {
+			if (holder) await put(holder);
+			const out = await s.get("quiz", { lesson });
+			expect(out.error?.code).toBe("SIGN_IN_REQUIRED");
+			expect(JSON.stringify(out)).not.toContain("Pick C");
+		}
+		await put(await course("Open course", "open"));
+		expect(((await s.get("quiz", { lesson })).quiz as { questions: unknown[] }).questions).toHaveLength(2);
 	});
 
 	it("refuses a question type other than choice and true_false, and more than 20 questions", async () => {
 		const s = await open();
 		const essay = { ...QUIZ, questions: [{ type: "essay", prompt: "Write", correct: 0 }] };
 		const lesson = await quizOnLesson(s, "bad", "published", essay);
-		expect((await s.get("quiz", { lesson })).error?.code).toBe("QUIZ_INVALID");
+		expect((await s.get("memberQuiz", { lesson }, ana)).error?.code).toBe("QUIZ_INVALID");
 		expect((await s.post("submitQuiz", { quiz: "bad", answers: [0] }, ana)).error?.code).toBe("QUIZ_INVALID");
 		expect(quizSchema.safeParse(essay).success).toBe(false);
 		const many = { ...QUIZ, questions: Array.from({ length: 21 }, () => QUIZ.questions[1]) };

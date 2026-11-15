@@ -1,5 +1,5 @@
 import type { Attempt, Enrollment } from "../schemas";
-import type { Ctx } from "./common";
+import { countProgress, type Ctx } from "./common";
 
 /**
  * Rows per page of the Enrollments and Quiz results lists. users:read has no batch lookup (get,
@@ -45,8 +45,8 @@ export async function findMembers(ctx: Ctx, text: string): Promise<Found> {
 type ListOpts = { cursor?: string; find?: string };
 type Listed<T> = { ok: true; total: number; items: T[]; cursor?: string; partial: boolean };
 
-/** Enrollments, newest first, with names and progress against the course outline. At most 18 calls. */
-export async function listEnrollments(ctx: Ctx, opts: ListOpts): Promise<Listed<Enrollment & { id: string; memberName: string; lessons: number }>> {
+/** Enrollments, newest first, with names and progress (countProgress) against the course outline. At most 18 calls. */
+export async function listEnrollments(ctx: Ctx, opts: ListOpts): Promise<Listed<Enrollment & { id: string; memberName: string; progress: ReturnType<typeof countProgress> }>> {
 	const found = opts.find ? await findMembers(ctx, opts.find) : null;
 	if (found && found.ids.length === 0) return { ok: true, total: 0, items: [], partial: found.partial };
 	const [total, page] = await Promise.all([
@@ -68,7 +68,7 @@ export async function listEnrollments(ctx: Ctx, opts: ListOpts): Promise<Listed<
 		items: rows.map((row) => ({
 			...row,
 			memberName: names.get(row.memberId) ?? "Former member",
-			lessons: ((outlines.get(row.courseKey) as { lessons?: unknown[] } | undefined)?.lessons ?? []).length,
+			progress: countProgress(row.done, ((outlines.get(row.courseKey) as { lessons?: Array<{ id: string }> } | undefined)?.lessons ?? []).map((lesson) => lesson.id)),
 		})),
 		cursor: !found && page.hasMore ? page.cursor : undefined,
 		partial: found?.partial ?? false,

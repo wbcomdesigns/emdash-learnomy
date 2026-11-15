@@ -1,7 +1,7 @@
 import type { RouteEntry, SandboxedPlugin } from "emdash/plugin";
 
 import { handleAdmin } from "./admin";
-import { catalog, completeLesson, courseGraph, enroll, eraseMember, lessonCourses, myCourses, outline, progress, quiz, submitQuiz } from "./learn";
+import { catalog, completeLesson, courseGraph, enroll, eraseMember, lessonCourses, memberQuiz, myCourses, outline, progress, quiz, submitQuiz } from "./learn";
 import { handlePanel } from "./panel";
 import { DAILY, daily, setUp } from "./tasks";
 import { mcpTools, toolRoutes } from "./tools";
@@ -36,6 +36,7 @@ const plugin: SandboxedPlugin = {
 		progress: { permission: MEMBER, methods: ["GET"], handler: async (routeCtx, ctx) => progress(routeCtx, ctx) },
 		myCourses: { permission: MEMBER, methods: ["GET"], handler: async (routeCtx, ctx) => myCourses(routeCtx, ctx) },
 		quiz: { public: true, methods: ["GET"], handler: async (routeCtx, ctx) => quiz(routeCtx, ctx) },
+		memberQuiz: { permission: MEMBER, methods: ["GET"], handler: async (routeCtx, ctx) => memberQuiz(routeCtx, ctx) },
 		enroll: { permission: MEMBER, methods: ["POST"], handler: async (routeCtx, ctx) => enroll(routeCtx, ctx) },
 		completeLesson: { permission: MEMBER, methods: ["POST"], handler: async (routeCtx, ctx) => completeLesson(routeCtx, ctx) },
 		submitQuiz: { permission: MEMBER, methods: ["POST"], handler: async (routeCtx, ctx) => submitQuiz(routeCtx, ctx) },

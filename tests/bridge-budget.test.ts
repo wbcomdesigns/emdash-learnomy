@@ -19,9 +19,17 @@ const CAP = 20;
 // The public outline reads published lessons 100 a page until it has found every outline lesson:
 // 2 + 15 = 17 at most (a site with 1,500 or more published lessons); measured here on 262. catalog: 1 + 3 + 15 =
 // 19 at most; lessonCourses: 1 + 5 + 10 = 16 at most (the outline scan reads 500 outlines, 5 pages).
+// Once the lessons still missing fit in the calls left, they are looked up by id (findPublished), so a
+// draft lesson costs one call instead of the full scan. The public quiz route for a guest adds the
+// lessonCourses scan to its 2: 17 at most. myCourses: 2 + 3 + 14 = 19 at most. completeLesson: 1 + 15
+// (status of the lessons left, none once all are done) + 2 + 2 (one retry) = 20 at most.
 const MEASURED: Record<string, number> = {
 	"route outline (200 lessons, 262 published on the site)": 5,
-	"route quiz (20 questions)": 2,
+	"route quiz (guest, lesson in no course, 600 outlines)": 7,
+	"route memberQuiz (20 questions)": 2,
+	"route outline (a draft lesson in the outline, 262 published on the site)": 5,
+	"route outline (3 lessons and a draft, 262 published on the site)": 4,
+	"route completeLesson (last published lesson, a draft left in the outline)": 5,
 	"route enroll": 2,
 	"route enroll (second time)": 2,
 	"route completeLesson (last lesson of 200)": 3,
@@ -72,7 +80,7 @@ const MEASURED: Record<string, number> = {
 	"route catalog (24 courses)": 5,
 	"route lessonCourses (600 outlines)": 7,
 	"route progress": 1,
-	"route myCourses (50 enrollments)": 2,
+	"route myCourses (50 enrollments)": 3,
 	"hook page:metadata (200 lessons, 262 published on the site)": 5,
 	"hook plugin:install": 3, // 2 measured: the test host already ran install at start; 3 on a site with no marker
 	"hook plugin:activate (marker set)": 2,
@@ -123,7 +131,8 @@ describe("bridge calls per entry point, worst case", () => {
 
 	it("public and member routes", async () => {
 		await measure("route outline (200 lessons, 262 published on the site)", () => s.get("outline", { course }));
-		await measure("route quiz (20 questions)", () => s.get("quiz", { lesson: q20Lesson }));
+		expect((await measure("route quiz (guest, lesson in no course, 600 outlines)", () => s.get("quiz", { lesson: q20Lesson }))).error.code).toBe("SIGN_IN_REQUIRED");
+		expect((await measure("route memberQuiz (20 questions)", () => s.get("memberQuiz", { lesson: q20Lesson }, ana))).quiz.questions).toHaveLength(20);
 		expect((await measure("route enroll", () => s.post("enroll", { course }, ana))).ok).toBe(true);
 		await measure("route enroll (second time)", () => s.post("enroll", { course }, ana));
 		await measure("route completeLesson (not in outline)", () => s.post("completeLesson", { course, lesson: "nope" }, ana));
@@ -132,6 +141,20 @@ describe("bridge calls per entry point, worst case", () => {
 		const last = await measure("route completeLesson (last lesson of 200)", () => s.post("completeLesson", { course, lesson: lessons[199]!.id }, ana));
 		expect(last.enrollment.completedAt).toBeTruthy();
 		await measure("route completeLesson (already done)", () => s.post("completeLesson", { course, lesson: lessons[0]!.id }, ana));
+		// A draft lesson at the end of the outline: one lookup by id, not a scan of every page.
+		const draft = await s.entry("lms_lessons", "Budget draft lesson", "draft");
+		const stored = await s.rt.inspect.storage.get<Record<string, any>>("outlines", course);
+		await s.rt.fixtures.plugin.storage("outlines", course, { ...stored, lessons: [...stored!.lessons.slice(0, 199), { id: draft, title: "Budget draft lesson" }] });
+		expect((await measure("route outline (a draft lesson in the outline, 262 published on the site)", () => s.get("outline", { course }))).lessons).toHaveLength(199);
+		await s.rt.fixtures.plugin.storage("enrollments", `ana:${course}`, { ...row, done: lessons.slice(0, 198).map((l) => l.id), completedAt: null });
+		const draftLeft = await measure("route completeLesson (last published lesson, a draft left in the outline)", () => s.post("completeLesson", { course, lesson: lessons[198]!.id }, ana));
+		expect(draftLeft.enrollment.completedAt).toBeTruthy();
+		await s.rt.fixtures.plugin.storage("outlines", course, stored);
+		// A short outline with a draft: the first page finds the published ones, the draft costs one lookup
+		// by id instead of reading every remaining page (5 calls before findPublished looked ids up).
+		const shortCourse = (await s.rt.inspect.content.list("lms_courses")).find((c) => c.slug === "course-00")!.id;
+		await s.rt.fixtures.plugin.storage("outlines", shortCourse, { courseKey: shortCourse, courseTitle: "Course 00", lessons: [...loose.slice(27, 30).map((id) => ({ id, title: "L" })), { id: draft, title: "D" }], updatedAt: "2026-11-15T00:00:00.000Z", rev: "r" });
+		expect((await measure("route outline (3 lessons and a draft, 262 published on the site)", () => s.get("outline", { course: shortCourse }))).lessons).toHaveLength(3);
 		await measure("route submitQuiz (20 questions)", () => s.post("submitQuiz", { quiz: "q20", answers: Array(20).fill(2) }, ana));
 		const ids = [course, ...Array.from({ length: 23 }, (_, i) => `other-${i}`)].join(",");
 		expect((await measure("route catalog (24 courses)", () => s.get("catalog", { courses: ids }))).counts[course]).toBe(200);
