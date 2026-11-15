@@ -1,0 +1,173 @@
+---
+/* Learnomy catalog: published courses as cards, filtered by category, 12 a page. */
+import { getEmDashCollection, getTaxonomyTermsWithCacheHint, getTermsForEntries } from "emdash";
+import { Image } from "emdash/ui";
+import Layout from "../../layouts/LearnomyLayout.astro";
+import { courseHref, PLUGIN } from "../../lib/learnomy";
+import { S } from "../../lib/learnomy-strings";
+import { callPluginRoute } from "../../lib/wbcom-kit";
+import "../../styles/learnomy.css";
+
+const PAGE = 12;
+const category = Astro.url.searchParams.get("category") || "";
+const cursor = Astro.url.searchParams.get("cursor") || undefined;
+
+const terms = await getTaxonomyTermsWithCacheHint("lms_course_category", { includeCounts: false }).catch(() => null);
+const term = category ? terms?.data.find((item) => item.slug === category) : null;
+const result = await getEmDashCollection("lms_courses", {
+	...(term ? { where: { lms_course_category: term.slug } } : {}),
+	orderBy: { published_at: "desc" },
+	limit: PAGE,
+	cursor,
+}).catch(() => ({ entries: [], error: new Error("failed"), cacheHint: undefined, nextCursor: undefined }));
+const failed = Boolean(result.error);
+const courses = result.entries;
+if (Astro.cache?.enabled) {
+	if (terms?.cacheHint) Astro.cache.set(terms.cacheHint);
+	if (result.cacheHint) Astro.cache.set(result.cacheHint);
+}
+
+const ids = courses.map((course) => course.data.id as string);
+const [categories, counts] = await Promise.all([
+	ids.length ? getTermsForEntries("lms_courses", ids, "lms_course_category").catch(() => new Map()) : new Map(),
+	ids.length ? callPluginRoute(Astro.locals, PLUGIN, `catalog?courses=${encodeURIComponent(ids.join(","))}`) : null,
+]);
+const lessonCount = (id: string) => (counts?.ok ? Number((counts.counts as Record<string, number>)?.[id] ?? 0) : null);
+const pageUrl = (params: Record<string, string | undefined>) => {
+	const url = new URL(Astro.url.pathname, Astro.url);
+	for (const [key, value] of Object.entries(params)) if (value) url.searchParams.set(key, value);
+	return `${url.pathname}${url.search}`;
+};
+const lock = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>';
+const title = term ? `${term.label} ${S.catalog.title.toLowerCase()}` : S.catalog.title;
+---
+
+<Layout title={title} description={S.catalog.lead}>
+	<div class="learnomy learnomy-catalog" data-learnomy-catalog>
+		<header class="learnomy-head" data-learnomy-catalog-head>
+			<h1 data-learnomy-catalog-title>{title}</h1>
+			<p class="learnomy-lead" data-learnomy-catalog-lead>{term?.description || S.catalog.lead}</p>
+		</header>
+
+		{
+			terms && terms.data.length > 0 && (
+				<nav aria-label={S.catalog.filterLabel} data-learnomy-filter>
+					<ul class="learnomy-chips">
+						<li>
+							<a class="learnomy-chip" href={pageUrl({})} aria-current={term ? undefined : "page"} data-learnomy-filter-all>
+								{S.catalog.all}
+							</a>
+						</li>
+						{terms.data.map((item) => (
+							<li>
+								<a class="learnomy-chip" href={pageUrl({ category: item.slug })} aria-current={term?.slug === item.slug ? "page" : undefined} data-learnomy-filter-term={item.slug}>
+									{item.label}
+								</a>
+							</li>
+						))}
+					</ul>
+				</nav>
+			)
+		}
+
+		{
+			failed ? (
+				<div class="learnomy-notice learnomy-notice--error" role="alert" data-learnomy-catalog-failed>
+					<strong>{S.catalog.failed}</strong>
+				</div>
+			) : courses.length === 0 ? (
+				<div class="learnomy-notice" data-learnomy-catalog-empty>
+					<strong>{term ? S.catalog.emptyCategory : S.catalog.empty}</strong>
+					{term ? (
+						<a class="learnomy-btn learnomy-btn--quiet" href={pageUrl({})}>{S.catalog.all}</a>
+					) : (
+						<p class="learnomy-muted">{S.catalog.emptyOwner}</p>
+					)}
+				</div>
+			) : (
+				<ul class="learnomy-grid" data-learnomy-grid>
+					{courses.map((course, index) => {
+						const id = course.data.id as string;
+						const members = course.data.access === "members";
+						const count = lessonCount(id);
+						const cat = (categories.get(id) ?? [])[0];
+						const name = String(course.data.title || "");
+						return (
+							<li class="learnomy-card" data-learnomy-card data-learnomy-course-id={id}>
+								<div class:list={["learnomy-cover", !course.data.cover && "learnomy-cover--empty"]} data-learnomy-card-cover>
+									{course.data.cover ? (
+										<Image image={course.data.cover} sizes="(min-width: 1100px) 360px, (min-width: 640px) 45vw, 100vw" priority={index < 3} />
+									) : (
+										<span aria-hidden="true">{[...name][0]?.toUpperCase()}</span>
+									)}
+								</div>
+								<div class="learnomy-card__body">
+									<p class="learnomy-card__meta" data-learnomy-card-meta>
+										{cat && <span data-learnomy-card-category>{cat.label}</span>}
+										{count !== null && <span data-learnomy-card-count>{S.lessonCount(count)}</span>}
+									</p>
+									<h2 class="learnomy-card__title">
+										<a class="learnomy-card__link" href={courseHref(course.id)} data-learnomy-card-link>
+											{name}
+										</a>
+									</h2>
+									{course.data.excerpt && <p class="learnomy-card__excerpt" data-learnomy-card-excerpt>{course.data.excerpt}</p>}
+									<div class="learnomy-card__foot">
+										<span class="learnomy-badge" title={members ? S.common.membersHelp : S.common.openHelp} data-learnomy-badge={members ? "members" : "open"}>
+											{members && <Fragment set:html={lock} />}
+											{members ? S.common.members : S.common.open}
+										</span>
+										<div class="learnomy-progress" data-learnomy-card-progress hidden></div>
+									</div>
+								</div>
+							</li>
+						);
+					})}
+				</ul>
+			)
+		}
+
+		{
+			(cursor || result.nextCursor) && (
+				<nav class="learnomy-pager-links" aria-label={S.catalog.pagination} data-learnomy-catalog-pages>
+					{cursor ? <a class="learnomy-btn learnomy-btn--quiet" href={pageUrl({ category: term?.slug })}>{S.catalog.previous}</a> : <span />}
+					{result.nextCursor && (
+						<a class="learnomy-btn learnomy-btn--quiet" href={pageUrl({ category: term?.slug, cursor: result.nextCursor })}>
+							{S.catalog.next}
+						</a>
+					)}
+				</nav>
+			)
+		}
+	</div>
+</Layout>
+
+<script>
+	// A signed-in member sees their progress on each card. Guests get a 401 and the cards stay as they are.
+	import { api, esc } from "../../lib/wbcom-kit";
+	import { percent, PLUGIN } from "../../lib/learnomy";
+	import { S } from "../../lib/learnomy-strings";
+
+	type Mine = { course: string; done: number; total: number; completedAt: string | null };
+
+	async function paint() {
+		const cards = document.querySelectorAll<HTMLElement>("[data-learnomy-card]");
+		if (!cards.length) return;
+		const result = await api(PLUGIN, "myCourses");
+		if (!result.ok) return;
+		const mine = new Map(((result.items as Mine[]) ?? []).map((item) => [item.course, item]));
+		cards.forEach((card) => {
+			const item = mine.get(card.dataset.learnomyCourseId ?? "");
+			const box = card.querySelector<HTMLElement>("[data-learnomy-card-progress]");
+			if (!item || !box) return;
+			if (item.completedAt) {
+				box.innerHTML = `<span class="learnomy-badge learnomy-badge--done" data-learnomy-card-done>${esc(S.course.finished)}</span>`;
+			} else {
+				const pct = percent(item.done, item.total);
+				box.innerHTML = `<span class="learnomy-sr">${esc(S.progress(item.done, item.total))}</span><span class="learnomy-progress__track" aria-hidden="true"><span class="learnomy-progress__fill" style="width:${pct}%"></span></span>`;
+			}
+			box.hidden = false;
+		});
+	}
+	void paint();
+</script>

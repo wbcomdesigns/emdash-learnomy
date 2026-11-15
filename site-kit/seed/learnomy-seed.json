@@ -1,0 +1,49 @@
+{
+	"version": "1",
+	"meta": {
+		"name": "Learnomy courses",
+		"description": "The lms_courses and lms_lessons collections and the course categories. Lessons join a course on the Course outline page."
+	},
+	"collections": [
+		{
+			"slug": "lms_courses",
+			"label": "Courses",
+			"labelSingular": "Course",
+			"description": "Learnomy courses",
+			"icon": "book",
+			"urlPattern": "/courses/{slug}",
+			"supports": ["drafts", "revisions", "preview", "scheduling", "search", "seo"],
+			"fields": [
+				{ "slug": "title", "label": "Title", "type": "string", "required": true, "searchable": true },
+				{ "slug": "excerpt", "label": "Excerpt", "type": "text", "searchable": true },
+				{ "slug": "content", "label": "Content", "type": "portableText" },
+				{ "slug": "access", "label": "Who can read the lessons", "type": "select", "required": true, "validation": { "options": ["open", "members"] } },
+				{ "slug": "cover", "label": "Cover image", "type": "image" }
+			]
+		},
+		{
+			"slug": "lms_lessons",
+			"label": "Lessons",
+			"labelSingular": "Lesson",
+			"description": "Learnomy lessons. Add them to a course on the Course outline page.",
+			"icon": "file-text",
+			"urlPattern": "/lessons/{slug}",
+			"supports": ["drafts", "revisions", "preview", "scheduling", "seo"],
+			"fields": [
+				{ "slug": "title", "label": "Title", "type": "string", "required": true },
+				{ "slug": "excerpt", "label": "Excerpt (for search engines, never the lesson text)", "type": "text" },
+				{ "slug": "content", "label": "Content", "type": "portableText" }
+			]
+		}
+	],
+	"taxonomies": [
+		{
+			"name": "lms_course_category",
+			"label": "Course categories",
+			"labelSingular": "Course category",
+			"hierarchical": true,
+			"collections": ["lms_courses"],
+			"terms": []
+		}
+	]
+}

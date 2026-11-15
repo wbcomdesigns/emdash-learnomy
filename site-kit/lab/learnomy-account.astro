@@ -1,0 +1,12 @@
+---
+/**
+ * Lab only (copied by scripts/apply-kit.sh, never by a site install). Mounts Your courses the way a
+ * site's account page does, so the member walk can reach it.
+ */
+import Layout from "../layouts/LearnomyLayout.astro";
+import LearnomyMyCourses from "../components/LearnomyMyCourses.astro";
+---
+
+<Layout title="Account" description="Lab page that mounts the Learnomy Your courses component.">
+	<LearnomyMyCourses />
+</Layout>

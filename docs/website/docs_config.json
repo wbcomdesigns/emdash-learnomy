@@ -1,0 +1,72 @@
+{
+  "product": "Learnomy for EmDash",
+  "productType": "plugin",
+  "shortId": "lmem",
+  "slug": "learnomy-emdash",
+  "tagline": "Free courses for your EmDash site: lessons in the editor, free enrollment, progress and a quiz per lesson.",
+  "note": "GitHub-only documentation. Metadata only. No publish or sync target.",
+  "images_dir": "images",
+  "version": "0.1.0",
+  "sections": [
+    {
+      "name": "Getting Started",
+      "folder": "getting-started",
+      "description": "What Learnomy does, how to install it, and how members join your site.",
+      "pages": [
+        { "slug": "introduction", "title": "Introduction" },
+        { "slug": "install", "title": "Install Learnomy" },
+        { "slug": "let-members-join", "title": "Let members join" },
+        { "slug": "what-members-means", "title": "What Members means" }
+      ]
+    },
+    {
+      "name": "Run Your Courses",
+      "folder": "manage",
+      "description": "Write courses and lessons, set their order, add quizzes and follow your members.",
+      "pages": [
+        { "slug": "admin-guide", "title": "Run your courses" }
+      ]
+    },
+    {
+      "name": "Customize",
+      "folder": "customize",
+      "description": "Change the colours, words and markup of the course pages.",
+      "pages": [
+        { "slug": "make-it-yours", "title": "Make it yours" }
+      ]
+    },
+    {
+      "name": "Developers and Agents",
+      "folder": "developers",
+      "description": "The plugin's routes, and how an AI agent builds a whole course.",
+      "pages": [
+        { "slug": "agents", "title": "Build a course with agents" },
+        { "slug": "routes", "title": "Routes" }
+      ]
+    },
+    {
+      "name": "FAQ",
+      "folder": "faq",
+      "description": "Short answers to the questions site owners ask most.",
+      "pages": [
+        { "slug": "faq", "title": "Frequently asked questions" }
+      ]
+    },
+    {
+      "name": "Troubleshooting",
+      "folder": "troubleshooting",
+      "description": "What to check when something does not show, and the known limits.",
+      "pages": [
+        { "slug": "troubleshooting", "title": "Troubleshooting and known limits" }
+      ]
+    },
+    {
+      "name": "What's New",
+      "folder": "whats-new",
+      "description": "What changed in each release, newest first.",
+      "pages": [
+        { "slug": "0-1-0", "title": "What's new in 0.1.0" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,384 @@
+---
+/*
+ * Learnomy lesson page. The course comes from ?course= (a lesson can sit in several courses), or
+ * from the lessonCourses route when the link has none.
+ * An Open course's lesson is rendered in full here. Otherwise only the title reaches the page HTML:
+ * the body is loaded in the browser from EmDash's content API, which answers signed-in members and
+ * refuses guests, so a Members lesson never appears in the page source, a cached page or the meta tags.
+ */
+import { decodeSlug, getEmDashEntry } from "emdash";
+import { PortableText } from "emdash/ui";
+import Layout from "../../layouts/LearnomyLayout.astro";
+import { courseHref, lessonHref, PLUGIN, type Lesson } from "../../lib/learnomy";
+import { S } from "../../lib/learnomy-strings";
+import { callPluginRoute } from "../../lib/wbcom-kit";
+import "../../styles/learnomy.css";
+
+const slug = decodeSlug(Astro.params.slug);
+if (!slug) return Astro.rewrite("/404");
+const { entry: lesson, cacheHint } = await getEmDashEntry("lms_lessons", slug);
+if (!lesson) return Astro.rewrite("/404");
+
+const lessonId = lesson.data.id as string;
+const title = String(lesson.data.title || "");
+// Without ?course= (search, sitemap, EmDash's own links) the plugin names the published courses
+// holding this lesson, Open ones first, and the page uses the first.
+let courseParam = decodeSlug(Astro.url.searchParams.get("course") ?? "") || "";
+if (!courseParam) {
+	const holders = await callPluginRoute(Astro.locals, PLUGIN, `lessonCourses?lesson=${encodeURIComponent(lessonId)}`);
+	courseParam = holders.ok ? String((holders.courses as Array<{ slug: string }>)[0]?.slug ?? "") : "";
+}
+const { entry: course, cacheHint: courseCacheHint } = courseParam ? await getEmDashEntry("lms_courses", courseParam) : { entry: null, cacheHint: undefined };
+const courseId = course ? (course.data.id as string) : "";
+const outline = course ? await callPluginRoute(Astro.locals, PLUGIN, `outline?course=${encodeURIComponent(courseId)}`) : null;
+const lessons = ((outline?.ok ? outline.lessons : []) as Lesson[]) ?? [];
+const index = lessons.findIndex((item) => item.id === lessonId);
+const inCourse = index >= 0;
+const open = inCourse && course?.data.access === "open";
+const prev = inCourse ? lessons[index - 1] : undefined;
+const next = inCourse ? lessons[index + 1] : undefined;
+const courseTitle = course ? String(course.data.title || "") : "";
+const position = inCourse ? S.lessonOf(index + 1, lessons.length) : "";
+// Route caching (when the site turns it on). An Open lesson's page holds the lesson text, and whether
+// it may depends on the course (its access) and the outline (plugin storage, which tags no page), so
+// it is never cached: a course switched to Members, or a lesson taken out of it, can never keep
+// serving the text to guests. A Members page holds the title only: it carries the lesson and course
+// tags and a short max-age, so outline changes show within a minute.
+if (Astro.cache?.enabled) {
+	if (open) Astro.cache.set(false);
+	else {
+		Astro.cache.set(cacheHint);
+		if (courseCacheHint) Astro.cache.set(courseCacheHint);
+		Astro.cache.set({ maxAge: 60 });
+	}
+}
+const canonical = new URL(inCourse ? lessonHref(slug, courseParam) : lessonHref(slug), Astro.url).href;
+const check = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7"/></svg>';
+---
+
+<Layout
+	title={courseTitle ? `${title} | ${courseTitle}` : title}
+	pageTitle={title}
+	description={(lesson.data.excerpt as string) || null}
+	canonical={canonical}
+	content={open ? { collection: "lms_lessons", id: lessonId, slug } : undefined}
+>
+	<div
+		class="learnomy learnomy-lesson"
+		data-learnomy-lesson
+		data-learnomy-lesson-id={lessonId}
+		data-learnomy-course-id={inCourse ? courseId : ""}
+		data-learnomy-course-slug={inCourse ? courseParam : ""}
+		data-learnomy-open={open ? "1" : ""}
+		data-learnomy-lessons={inCourse ? JSON.stringify(lessons) : "[]"}
+	>
+		<nav class="learnomy-crumbs" aria-label={S.course.breadcrumb} data-learnomy-crumbs>
+			<ol>
+				<li><a href="/courses/">{S.catalog.title}</a></li>
+				{inCourse && <li><a href={courseHref(courseParam)}>{courseTitle}</a></li>}
+				<li aria-current="page">{title}</li>
+			</ol>
+		</nav>
+
+		<div class:list={["learnomy-lesson__grid", !inCourse && "learnomy-lesson__grid--solo"]}>
+			{
+				inCourse && (
+					<aside class="learnomy-outline" aria-label={S.lesson.outline} data-learnomy-outline>
+						<button class="learnomy-outline__toggle" type="button" aria-expanded="false" aria-controls="learnomy-outline-list" data-learnomy-outline-toggle>
+							{S.lesson.outline} · {position}
+						</button>
+						<div class="learnomy-outline__head">
+							<span class="learnomy-eyebrow">{S.lesson.outline}</span>
+							<a href={courseHref(courseParam)} data-learnomy-outline-course>{courseTitle}</a>
+						</div>
+						<ol class="learnomy-steps" id="learnomy-outline-list" data-learnomy-steps>
+							{lessons.map((item, i) => (
+								<li class="learnomy-step" data-learnomy-step={item.id} data-learnomy-state={item.id === lessonId ? "current" : "todo"}>
+									<a href={lessonHref(item.slug, courseParam)} aria-current={item.id === lessonId ? "page" : undefined}>
+										<span class="learnomy-step__mark">
+											<span class="learnomy-step__num">{i + 1}</span>
+											<Fragment set:html={check} />
+										</span>
+										<span class="learnomy-step__text">{item.title}</span>
+									</a>
+								</li>
+							))}
+						</ol>
+					</aside>
+				)
+			}
+
+			<article class="learnomy-lesson__main" aria-labelledby="learnomy-lesson-title">
+				<header class="learnomy-lesson__title">
+					{inCourse && <p class="learnomy-eyebrow" data-learnomy-position>{position}</p>}
+					<h1 id="learnomy-lesson-title" data-learnomy-lesson-title>{title}</h1>
+				</header>
+
+				{
+					open ? (
+						<div class="learnomy-prose" data-learnomy-body data-learnomy-state="ready">
+							{lesson.data.content && <PortableText value={lesson.data.content} />}
+						</div>
+					) : (
+						<div class="learnomy-gate" data-learnomy-body data-learnomy-state="loading" aria-busy="true">
+							<div class="learnomy-skeleton" data-learnomy-body-loading>
+								<span class="learnomy-sr">{S.lesson.loading}</span>
+								<span aria-hidden="true" />
+								<span aria-hidden="true" />
+								<span aria-hidden="true" />
+								<span aria-hidden="true" />
+								<span aria-hidden="true" />
+							</div>
+							<noscript>
+								<p class="learnomy-notice">{S.lesson.noScript}</p>
+							</noscript>
+						</div>
+					)
+				}
+
+				{
+					inCourse && (
+						<div class="learnomy-panel" data-learnomy-complete-box hidden>
+							<p class="learnomy-status" role="status" aria-live="polite" data-learnomy-complete-status />
+							<div class="learnomy-actions" data-learnomy-complete-actions />
+						</div>
+					)
+				}
+
+				<section class="learnomy-quiz" aria-labelledby="learnomy-quiz-heading" data-learnomy-quiz hidden>
+					<h2 id="learnomy-quiz-heading">{S.quiz.heading}</h2>
+					<div data-learnomy-quiz-body>
+						<p class="learnomy-muted" aria-live="polite" data-learnomy-quiz-loading>{S.quiz.loading}</p>
+					</div>
+				</section>
+
+				{
+					inCourse && (prev || next) && (
+						<nav class="learnomy-pager" aria-label={S.lesson.pager} data-learnomy-pager>
+							{prev && (
+								<a href={lessonHref(prev.slug, courseParam)} rel="prev" data-learnomy-prev>
+									<span>{S.lesson.previous}</span>
+									<strong>{prev.title}</strong>
+								</a>
+							)}
+							{next && (
+								<a class="learnomy-pager__next" href={lessonHref(next.slug, courseParam)} rel="next" data-learnomy-next>
+									<span>{S.lesson.next}</span>
+									<strong>{next.title}</strong>
+								</a>
+							)}
+						</nav>
+					)
+				}
+				{inCourse && !next && <p><a href={courseHref(courseParam)} data-learnomy-back>{S.lesson.backToCourse}</a></p>}
+			</article>
+		</div>
+	</div>
+</Layout>
+
+<script>
+	import { api, esc, signInUrl } from "../../lib/wbcom-kit";
+	import { portableTextToHtml, PLUGIN, progressOn, type Enrollment, type Lesson } from "../../lib/learnomy";
+	import { S } from "../../lib/learnomy-strings";
+
+	type Question = { type: "choice" | "true_false"; prompt: string; answers?: string[] };
+	type Quiz = { id: string; title: string; questions: Question[] };
+
+	const root = document.querySelector<HTMLElement>("[data-learnomy-lesson]");
+	if (root) {
+		const lessonId = root.dataset.learnomyLessonId ?? "";
+		const course = root.dataset.learnomyCourseId ?? "";
+		const lessons = JSON.parse(root.dataset.learnomyLessons || "[]") as Lesson[];
+
+		/* Outline: collapsible above the lesson under 768px. Without JavaScript it simply stays open. */
+		const outline = root.querySelector<HTMLElement>("[data-learnomy-outline]");
+		const toggle = root.querySelector<HTMLButtonElement>("[data-learnomy-outline-toggle]");
+		if (outline && toggle) {
+			outline.dataset.learnomyJs = "";
+			toggle.addEventListener("click", () => {
+				const opened = toggle.getAttribute("aria-expanded") !== "true";
+				toggle.setAttribute("aria-expanded", String(opened));
+				if (opened) outline.dataset.learnomyOpen = "";
+				else delete outline.dataset.learnomyOpen;
+			});
+		}
+
+		const markDone = (done: string[]) => {
+			root.querySelectorAll<HTMLElement>("[data-learnomy-step]").forEach((step) => {
+				const id = step.dataset.learnomyStep ?? "";
+				step.dataset.learnomyState = done.includes(id) ? "done" : id === lessonId ? "current" : "todo";
+			});
+		};
+
+		/* Mark complete. Shown once the member's enrollment is known; guests get a sign-in line. */
+		const completeBox = root.querySelector<HTMLElement>("[data-learnomy-complete-box]");
+		async function setupComplete() {
+			if (!completeBox || !course) return;
+			const status = completeBox.querySelector<HTMLElement>("[data-learnomy-complete-status]")!;
+			const actions = completeBox.querySelector<HTMLElement>("[data-learnomy-complete-actions]")!;
+			const result = await api(PLUGIN, `progress?course=${encodeURIComponent(course)}`);
+			completeBox.hidden = false;
+			const paint = (enrollment: Enrollment) => {
+				const done = enrollment?.done ?? [];
+				markDone(done);
+				if (done.includes(lessonId)) {
+					actions.innerHTML = `<span class="learnomy-badge learnomy-badge--done" data-learnomy-completed>${esc(S.lesson.completed)}</span>`;
+					return;
+				}
+				actions.innerHTML = `<button class="learnomy-btn" type="button" data-learnomy-mark>${esc(S.lesson.markComplete)}</button>`;
+				const button = actions.querySelector<HTMLButtonElement>("[data-learnomy-mark]")!;
+				button.addEventListener("click", async () => {
+					button.setAttribute("aria-busy", "true");
+					button.textContent = S.lesson.marking;
+					const out = await api(PLUGIN, "completeLesson", { course, lesson: lessonId });
+					if (!out.ok) {
+						button.removeAttribute("aria-busy");
+						button.textContent = S.lesson.markComplete;
+						status.dataset.tone = "error";
+						status.textContent = out.error?.message || S.common.failed;
+						return;
+					}
+					const row = out.enrollment as NonNullable<Enrollment>;
+					paint(row);
+					status.dataset.tone = "";
+					const counted = progressOn(lessons, row.done);
+					status.textContent = counted.finished ? S.lesson.courseFinished : S.progress(counted.done, counted.total);
+					root.querySelector<HTMLAnchorElement>("[data-learnomy-next]")?.focus();
+				});
+			};
+			if (result.ok && result.enrollment) return paint(result.enrollment as Enrollment);
+			if (result.ok) {
+				status.textContent = S.lesson.enrollToTrack;
+				actions.innerHTML = `<button class="learnomy-btn learnomy-btn--quiet" type="button" data-learnomy-enroll>${esc(S.course.enroll)}</button>`;
+				const button = actions.querySelector<HTMLButtonElement>("[data-learnomy-enroll]")!;
+				button.addEventListener("click", async () => {
+					button.setAttribute("aria-busy", "true");
+					const out = await api(PLUGIN, "enroll", { course });
+					if (out.ok || out.error?.code === "ALREADY_ENROLLED") {
+						status.textContent = S.course.enrolled;
+						const again = await api(PLUGIN, `progress?course=${encodeURIComponent(course)}`);
+						return paint((again.enrollment as Enrollment) ?? { done: [], completedAt: null });
+					}
+					button.removeAttribute("aria-busy");
+					status.dataset.tone = "error";
+					status.textContent = out.error?.message || S.common.failed;
+				});
+				return;
+			}
+			if (result.error?.code === "SIGN_IN_REQUIRED") {
+				status.innerHTML = `${esc(S.lesson.signInToTrack)} <a href="${esc(signInUrl())}">${esc(S.common.signIn)}</a>`;
+				return;
+			}
+			status.dataset.tone = "error";
+			status.textContent = result.error?.message || S.common.failed;
+		}
+
+		/* Quiz: one fieldset per question; results only after the server scores it. */
+		const quizBox = root.querySelector<HTMLElement>("[data-learnomy-quiz]")!;
+		const quizBody = quizBox.querySelector<HTMLElement>("[data-learnomy-quiz-body]")!;
+		function quizHtml(quiz: Quiz): string {
+			const fields = quiz.questions
+				.map((q, i) => {
+					const answers = q.type === "choice" ? (q.answers ?? []) : [S.quiz.trueLabel, S.quiz.falseLabel];
+					const choices = answers
+						.map((answer, a) => `<label class="learnomy-choice" data-learnomy-choice><input type="radio" name="q${i}" value="${a}" required> <span>${esc(answer)}</span></label>`)
+						.join("");
+					return `<fieldset class="learnomy-q" data-learnomy-question="${i}"><legend><span class="learnomy-q__num">${esc(S.question(i + 1))}</span>${esc(q.prompt)}</legend>${choices}<p class="learnomy-q__result" data-learnomy-question-result></p></fieldset>`;
+				})
+				.join("");
+			return `<p class="learnomy-muted" data-learnomy-quiz-title><strong>${esc(quiz.title)}</strong></p><form novalidate data-learnomy-quiz-form>${fields}<div class="learnomy-score" role="status" aria-live="polite" data-learnomy-score hidden></div><p class="learnomy-status" role="alert" data-learnomy-quiz-status></p><div class="learnomy-actions"><button class="learnomy-btn" type="submit" data-learnomy-quiz-submit>${esc(S.quiz.submit)}</button></div></form>`;
+		}
+
+		async function loadQuiz() {
+			quizBox.hidden = false;
+			// Guests may read the quiz of an Open lesson; a Members lesson's quiz is for signed-in members.
+			const route = root!.dataset.learnomyOpen === "1" ? "quiz" : "memberQuiz";
+			const result = await api(PLUGIN, `${route}?lesson=${encodeURIComponent(lessonId)}`);
+			if (!result.ok) {
+				const none = result.error?.code === "QUIZ_NOT_FOUND";
+				quizBody.innerHTML = `<p class="${none ? "learnomy-muted" : "learnomy-status"}" ${none ? "data-learnomy-quiz-none" : 'data-tone="error" data-learnomy-quiz-failed'}>${esc(none ? S.quiz.none : result.error?.message || S.quiz.failed)}</p>`;
+				return;
+			}
+			const quiz = result.quiz as Quiz;
+			quizBody.innerHTML = quizHtml(quiz);
+			const form = quizBody.querySelector<HTMLFormElement>("form")!;
+			const status = form.querySelector<HTMLElement>("[data-learnomy-quiz-status]")!;
+			const score = form.querySelector<HTMLElement>("[data-learnomy-score]")!;
+			const submit = form.querySelector<HTMLButtonElement>("[data-learnomy-quiz-submit]")!;
+			form.addEventListener("change", () => {
+				form.querySelectorAll<HTMLElement>("[data-learnomy-result]").forEach((field) => delete field.dataset.learnomyResult);
+			});
+			form.addEventListener("submit", async (event) => {
+				event.preventDefault();
+				status.textContent = "";
+				status.dataset.tone = "error";
+				const answers = quiz.questions.map((_, i) => form.querySelector<HTMLInputElement>(`input[name="q${i}"]:checked`)?.value);
+				const missing = answers.findIndex((answer) => answer === undefined);
+				if (missing >= 0) {
+					status.textContent = S.quiz.answerAll;
+					form.querySelector<HTMLInputElement>(`input[name="q${missing}"]`)?.focus();
+					return;
+				}
+				submit.setAttribute("aria-busy", "true");
+				submit.textContent = S.quiz.submitting;
+				const out = await api(PLUGIN, "submitQuiz", { quiz: quiz.id, answers: answers.map(Number) });
+				submit.removeAttribute("aria-busy");
+				submit.textContent = S.quiz.submit;
+				if (!out.ok) {
+					// Answers stay where they are.
+					status.innerHTML =
+						out.error?.code === "SIGN_IN_REQUIRED"
+							? `${esc(S.quiz.signInToSubmit)} <a href="${esc(signInUrl())}">${esc(S.common.signIn)}</a>`
+							: esc(out.error?.code === "FAILED" || out.error?.code === "OFFLINE" ? S.quiz.saveFailed : out.error?.message || S.quiz.saveFailed);
+					return;
+				}
+				const right = out.right as boolean[];
+				form.querySelectorAll<HTMLElement>("[data-learnomy-question]").forEach((field, i) => {
+					field.dataset.learnomyResult = right[i] ? "right" : "wrong";
+					field.querySelector("[data-learnomy-question-result]")!.textContent = right[i] ? S.quiz.right : S.quiz.wrong;
+				});
+				score.hidden = false;
+				score.innerHTML = `<span>${esc(S.scored(Number(out.score), Number(out.total)))}</span><span class="learnomy-muted" style="font-size:0.9rem;font-weight:400">${esc(S.quiz.resubmitHelp)}</span>`;
+				submit.textContent = S.quiz.retry;
+			});
+		}
+
+		/* Members lesson: the body comes from EmDash's content API, which refuses guests. */
+		const body = root.querySelector<HTMLElement>("[data-learnomy-body]")!;
+		async function loadBody(): Promise<boolean> {
+			body.dataset.learnomyState = "loading";
+			body.setAttribute("aria-busy", "true");
+			try {
+				const response = await fetch(`/_emdash/api/content/lms_lessons/${encodeURIComponent(lessonId)}`, { credentials: "same-origin" });
+				body.removeAttribute("aria-busy");
+				if (response.status === 401 || response.status === 403) {
+					body.dataset.learnomyState = "signin";
+					body.className = "learnomy-gate";
+					body.innerHTML = `<div class="learnomy-notice" data-learnomy-gate><strong>${esc(S.lesson.membersOnly)} ${esc(S.lesson.membersSignIn)}</strong><p class="learnomy-muted">${esc(S.lesson.howToJoin)}</p><a class="learnomy-btn" href="${esc(signInUrl())}" data-learnomy-sign-in>${esc(S.common.signIn)}</a></div>`;
+					return false;
+				}
+				if (!response.ok) throw new Error(String(response.status));
+				const json = await response.json();
+				body.className = "learnomy-prose";
+				body.innerHTML = portableTextToHtml(json?.data?.item?.data?.content);
+				body.dataset.learnomyState = "ready";
+				return true;
+			} catch {
+				body.removeAttribute("aria-busy");
+				body.dataset.learnomyState = "failed";
+				body.className = "learnomy-gate";
+				body.innerHTML = `<div class="learnomy-notice learnomy-notice--error" role="alert" data-learnomy-body-failed><strong>${esc(S.lesson.failed)}</strong><button class="learnomy-btn learnomy-btn--quiet" type="button" data-learnomy-retry>${esc(S.common.tryAgain)}</button></div>`;
+				body.querySelector("[data-learnomy-retry]")!.addEventListener("click", () => void start());
+				return false;
+			}
+		}
+
+		async function start() {
+			const readable = root!.dataset.learnomyOpen === "1" || (await loadBody());
+			if (!readable) return;
+			void setupComplete();
+			void loadQuiz();
+		}
+		void start();
+	}
+</script>

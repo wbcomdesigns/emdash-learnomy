@@ -1,0 +1,25 @@
+---
+/**
+ * The one place the Learnomy pages meet your site's design.
+ *
+ * Every Learnomy page is wrapped in this file. It hands the page to your site's own layout. If your
+ * layout has another name or lives somewhere else, change the import below. If it takes different
+ * props, map them here. Nothing else in the kit needs to change.
+ *
+ * Copying the kit again never overwrites this file.
+ */
+import Base from "./Base.astro";
+
+interface Props {
+	title: string;
+	pageTitle?: string | null;
+	description?: string | null;
+	image?: string | null;
+	canonical?: string | null;
+	robots?: string | null;
+	/** Lets plugins add to the page head. A course page passes it for its structured data. */
+	content?: { collection: string; id: string; slug?: string | null };
+}
+---
+
+<Base {...Astro.props}><slot /></Base>

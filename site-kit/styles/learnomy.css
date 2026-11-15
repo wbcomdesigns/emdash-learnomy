@@ -1,0 +1,1106 @@
+/*
+ * Learnomy site kit styles. Everything lives under .learnomy and is built on --learnomy-* tokens.
+ * Each token reads your theme's own custom property first (the names every create-emdash template
+ * uses) and falls back to a neutral value, so the kit follows the site's colours, font, radius and
+ * light or dark scheme. No font, no reset, no global selector.
+ *
+ * Restyle the kit by setting tokens in your own stylesheet, for example:
+ *   .learnomy { --learnomy-brand: #0f766e; --learnomy-radius: 4px; }
+ */
+
+/* Tokens carry no specificity, so a site rule `.learnomy { --learnomy-brand: ... }` always wins,
+   whatever order the stylesheets load in. */
+:where(.learnomy) {
+	--learnomy-text: var(--color-text, light-dark(#1a1a1a, #f2f2f2));
+	--learnomy-muted: var(--color-text-secondary, var(--color-muted, light-dark(#555555, #b0b0b0)));
+	--learnomy-bg: var(--color-bg, light-dark(#ffffff, #121212));
+	--learnomy-surface: var(--color-surface, light-dark(#ffffff, #1b1b1b));
+	--learnomy-subtle: var(--color-fill, var(--color-sunken, light-dark(#f2f2f2, #242424)));
+	--learnomy-border: var(--color-border, light-dark(#e2e2e2, #333333));
+	--learnomy-border-strong: var(--color-border-strong, light-dark(#c8c8c8, #4a4a4a));
+	--learnomy-brand: var(--color-brand, light-dark(#1d4ed8, #8fb0ff));
+	--learnomy-on-brand: var(--color-on-brand, light-dark(#ffffff, #0b1220));
+	--learnomy-danger: var(--color-danger, light-dark(#b91c1c, #f87171));
+	--learnomy-heading-font: var(--font-heading, inherit);
+	--learnomy-heading-weight: var(--font-weight-heading, 650);
+	--learnomy-radius: var(--radius-lg, var(--radius, 12px));
+	--learnomy-radius-sm: var(--radius-sm, 6px);
+	--learnomy-shadow: var(--shadow-card, 0 1px 2px light-dark(rgb(0 0 0 / 0.06), rgb(0 0 0 / 0.4)));
+	--learnomy-shadow-hover: var(--shadow-card-hover, 0 6px 20px light-dark(rgb(0 0 0 / 0.1), rgb(0 0 0 / 0.5)));
+	--learnomy-gap: var(--spacing-md, 1rem);
+	/* The page frame follows the theme's content frame (create-emdash templates: --frame-width,
+	   --wide-width, --frame-padding), so the kit lines up with the header and footer. */
+	--learnomy-frame: var(--frame-width, 100%);
+	--learnomy-max: var(--wide-width, 72rem);
+	--learnomy-gutter: var(--frame-padding, clamp(1rem, 4vw, 2rem));
+	--learnomy-measure: 40rem;
+	--learnomy-tap: 44px;
+	--learnomy-cover-ratio: 16 / 9;
+}
+
+.learnomy {
+	box-sizing: border-box;
+	width: var(--learnomy-frame);
+	max-width: var(--learnomy-max);
+	margin-inline: auto;
+	padding: clamp(1.5rem, 4vw, 3rem) var(--learnomy-gutter) clamp(2.5rem, 6vw, 4.5rem);
+	color: var(--learnomy-text);
+	line-height: 1.6;
+}
+
+.learnomy *,
+.learnomy *::before,
+.learnomy *::after {
+	box-sizing: inherit;
+}
+
+.learnomy [hidden] {
+	display: none !important;
+}
+
+.learnomy :where(h1, h2, h3, p, ol, ul, figure) {
+	margin: 0;
+}
+
+.learnomy :is(h1, h2, h3) {
+	font-family: var(--learnomy-heading-font);
+	font-weight: var(--learnomy-heading-weight);
+	line-height: 1.2;
+	letter-spacing: -0.015em;
+	text-wrap: balance;
+}
+
+.learnomy h1 {
+	font-size: clamp(1.9rem, 1.4rem + 2.2vw, 2.9rem);
+	letter-spacing: -0.025em;
+}
+
+.learnomy h2 {
+	font-size: clamp(1.25rem, 1.1rem + 0.6vw, 1.5rem);
+}
+
+.learnomy :where(a) {
+	color: inherit;
+}
+
+.learnomy :is(a, button, input, summary):focus-visible {
+	outline: 2px solid var(--learnomy-brand);
+	outline-offset: 2px;
+}
+
+.learnomy-sr {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+}
+
+.learnomy-muted {
+	color: var(--learnomy-muted);
+}
+
+/* Page heading */
+.learnomy-head {
+	display: grid;
+	gap: 0.6rem;
+	margin-block-end: clamp(1.5rem, 3vw, 2.25rem);
+}
+
+.learnomy-lead {
+	max-width: 60ch;
+	color: var(--learnomy-muted);
+	font-size: 1.125rem;
+}
+
+.learnomy-crumbs ol {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.35rem;
+	padding: 0;
+	list-style: none;
+	color: var(--learnomy-muted);
+	font-size: 0.9rem;
+}
+
+.learnomy-crumbs li + li::before {
+	content: "/";
+	margin-inline-end: 0.35rem;
+	opacity: 0.6;
+}
+
+/* A 44px tall tap target that keeps the line looking the same. */
+.learnomy-crumbs a {
+	display: inline-flex;
+	align-items: center;
+	min-height: var(--learnomy-tap);
+	text-decoration: none;
+}
+
+.learnomy-crumbs ol {
+	align-items: center;
+}
+
+.learnomy-crumbs a:hover {
+	text-decoration: underline;
+}
+
+.learnomy-crumbs [aria-current] {
+	overflow: hidden;
+	max-width: 40ch;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Buttons and chips */
+.learnomy-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.5rem;
+	min-height: var(--learnomy-tap);
+	padding: 0.55rem 1.25rem;
+	border: 1px solid var(--learnomy-brand);
+	border-radius: var(--learnomy-radius-sm);
+	background: var(--learnomy-brand);
+	color: var(--learnomy-on-brand);
+	font: inherit;
+	font-weight: 600;
+	line-height: 1.2;
+	text-decoration: none;
+	cursor: pointer;
+	transition: filter 0.15s ease, transform 0.15s ease;
+}
+
+.learnomy-btn:hover {
+	filter: brightness(0.92);
+}
+
+.learnomy-btn:active {
+	transform: translateY(1px);
+}
+
+.learnomy-btn--quiet {
+	border-color: var(--learnomy-border-strong);
+	background: transparent;
+	color: var(--learnomy-text);
+}
+
+.learnomy-btn--quiet:hover {
+	background: var(--learnomy-subtle);
+	filter: none;
+}
+
+.learnomy-btn[aria-busy="true"],
+.learnomy-btn:disabled {
+	opacity: 0.6;
+	cursor: default;
+	pointer-events: none;
+}
+
+.learnomy-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+	margin-block-end: 1.75rem;
+	padding: 0;
+	list-style: none;
+}
+
+.learnomy-chip {
+	display: inline-flex;
+	align-items: center;
+	min-height: 40px;
+	padding: 0.35rem 1rem;
+	border: 1px solid var(--learnomy-border);
+	border-radius: 999px;
+	background: var(--learnomy-surface);
+	font-size: 0.95rem;
+	text-decoration: none;
+}
+
+.learnomy-chip:hover {
+	border-color: var(--learnomy-border-strong);
+}
+
+.learnomy-chip[aria-current="page"] {
+	border-color: var(--learnomy-brand);
+	background: var(--learnomy-brand);
+	color: var(--learnomy-on-brand);
+}
+
+.learnomy-badge {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.3rem;
+	padding: 0.15rem 0.6rem;
+	border: 1px solid var(--learnomy-border-strong);
+	border-radius: 999px;
+	background: var(--learnomy-surface);
+	color: var(--learnomy-text);
+	font-size: 0.8rem;
+	font-weight: 600;
+	line-height: 1.5;
+	white-space: nowrap;
+}
+
+.learnomy-badge svg {
+	width: 0.85em;
+	height: 0.85em;
+}
+
+.learnomy-badge--done {
+	border-color: var(--learnomy-brand);
+	background: var(--learnomy-brand);
+	color: var(--learnomy-on-brand);
+}
+
+/* Progress bar */
+.learnomy-progress {
+	display: grid;
+	gap: 0.4rem;
+	font-size: 0.9rem;
+}
+
+.learnomy-progress .learnomy-badge {
+	justify-self: start;
+}
+
+.learnomy-progress__track {
+	overflow: hidden;
+	height: 0.5rem;
+	border-radius: 999px;
+	background: var(--learnomy-subtle);
+	box-shadow: inset 0 0 0 1px var(--learnomy-border);
+}
+
+.learnomy-progress__fill {
+	display: block;
+	height: 100%;
+	border-radius: inherit;
+	background: var(--learnomy-brand);
+	transition: width 0.3s ease;
+}
+
+/* Notices and states */
+.learnomy-notice {
+	display: grid;
+	gap: 0.75rem;
+	justify-items: start;
+	padding: clamp(1.25rem, 3vw, 2rem);
+	border: 1px dashed var(--learnomy-border-strong);
+	border-radius: var(--learnomy-radius);
+	background: var(--learnomy-subtle);
+}
+
+.learnomy-notice--error {
+	border-style: solid;
+	border-color: var(--learnomy-danger);
+}
+
+.learnomy-notice strong {
+	font-size: 1.05rem;
+}
+
+.learnomy-status {
+	margin: 0;
+	font-weight: 600;
+}
+
+.learnomy-status:empty {
+	display: none;
+}
+
+.learnomy-status[data-tone="error"] {
+	color: var(--learnomy-danger);
+}
+
+.learnomy-status a {
+	color: inherit;
+}
+
+.learnomy-skeleton {
+	display: grid;
+	gap: 0.75rem;
+}
+
+.learnomy-skeleton span {
+	display: block;
+	height: 0.9rem;
+	border-radius: 4px;
+	background: var(--learnomy-subtle);
+	animation: learnomy-pulse 1.4s ease-in-out infinite;
+}
+
+.learnomy-skeleton span:nth-child(3n) {
+	width: 70%;
+}
+
+@keyframes learnomy-pulse {
+	50% {
+		opacity: 0.45;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.learnomy-skeleton span,
+	.learnomy-progress__fill,
+	.learnomy-btn,
+	.learnomy-card {
+		animation: none;
+		transition: none;
+	}
+}
+
+/* Catalog */
+.learnomy-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(min(100%, 17.5rem), 1fr));
+	gap: clamp(1rem, 2.5vw, 1.75rem);
+	padding: 0;
+	list-style: none;
+}
+
+.learnomy-card {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+	border: 1px solid var(--learnomy-border);
+	border-radius: var(--learnomy-radius);
+	background: var(--learnomy-surface);
+	box-shadow: var(--learnomy-shadow);
+	transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.learnomy-card:hover {
+	box-shadow: var(--learnomy-shadow-hover);
+	transform: translateY(-2px);
+}
+
+.learnomy-card:focus-within {
+	outline: 2px solid var(--learnomy-brand);
+	outline-offset: 2px;
+}
+
+.learnomy-cover {
+	position: relative;
+	overflow: hidden;
+	aspect-ratio: var(--learnomy-cover-ratio);
+	background: var(--learnomy-subtle);
+}
+
+.learnomy-cover img {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+
+.learnomy-cover--empty {
+	display: grid;
+	place-items: center;
+	background:
+		radial-gradient(circle at 25% 20%, color-mix(in srgb, var(--learnomy-brand) 22%, transparent), transparent 55%),
+		radial-gradient(circle at 80% 85%, color-mix(in srgb, var(--learnomy-brand) 14%, transparent), transparent 50%),
+		var(--learnomy-subtle);
+	color: var(--learnomy-muted);
+	font-family: var(--learnomy-heading-font);
+	font-size: clamp(2.5rem, 6vw, 3.5rem);
+	font-weight: 700;
+}
+
+.learnomy-card__body {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	gap: 0.5rem;
+	padding: 1.1rem 1.25rem 1.25rem;
+}
+
+.learnomy-card__meta {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.25rem 0.75rem;
+	color: var(--learnomy-muted);
+	font-size: 0.85rem;
+}
+
+.learnomy-card__title {
+	font-size: 1.2rem;
+}
+
+.learnomy-card__link {
+	text-decoration: none;
+}
+
+.learnomy-card__link::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+}
+
+.learnomy-card__link:focus-visible {
+	outline: none;
+}
+
+.learnomy-card__excerpt {
+	display: -webkit-box;
+	overflow: hidden;
+	color: var(--learnomy-muted);
+	-webkit-line-clamp: 3;
+	-webkit-box-orient: vertical;
+}
+
+.learnomy-card__foot {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+	margin-block-start: auto;
+	padding-block-start: 0.75rem;
+}
+
+.learnomy-card__foot .learnomy-progress {
+	flex: 1 1 8rem;
+}
+
+.learnomy-pager-links {
+	display: flex;
+	justify-content: space-between;
+	gap: 1rem;
+	margin-block-start: 2rem;
+}
+
+/* Course */
+.learnomy-hero {
+	display: grid;
+	gap: clamp(1.25rem, 3vw, 2.5rem);
+	align-items: center;
+	margin-block: 1.25rem clamp(2rem, 4vw, 3rem);
+}
+
+.learnomy-hero .learnomy-cover {
+	border-radius: var(--learnomy-radius);
+	box-shadow: var(--learnomy-shadow);
+}
+
+.learnomy-hero__text {
+	display: grid;
+	gap: 1rem;
+	align-content: start;
+}
+
+.learnomy-hero__meta {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.5rem 0.9rem;
+	color: var(--learnomy-muted);
+	font-size: 0.95rem;
+}
+
+.learnomy-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.75rem 1rem;
+}
+
+.learnomy-hero__panel {
+	display: grid;
+	gap: 0.9rem;
+	padding: 1.1rem 1.25rem;
+	border: 1px solid var(--learnomy-border);
+	border-radius: var(--learnomy-radius);
+	background: var(--learnomy-surface);
+}
+
+@media (min-width: 768px) {
+	.learnomy-hero {
+		grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+	}
+
+	.learnomy-hero--no-cover {
+		grid-template-columns: minmax(0, 46rem);
+	}
+}
+
+.learnomy-course__columns {
+	display: grid;
+	gap: clamp(2rem, 4vw, 3.5rem);
+}
+
+@media (min-width: 1024px) {
+	.learnomy-course__columns {
+		grid-template-columns: minmax(0, 1fr) minmax(18rem, 24rem);
+		align-items: start;
+	}
+}
+
+.learnomy-steps {
+	display: grid;
+	gap: 0;
+	padding: 0;
+	border: 1px solid var(--learnomy-border);
+	border-radius: var(--learnomy-radius);
+	background: var(--learnomy-surface);
+	list-style: none;
+	counter-reset: learnomy-step;
+}
+
+.learnomy-step + .learnomy-step {
+	border-block-start: 1px solid var(--learnomy-border);
+}
+
+.learnomy-step a {
+	display: grid;
+	grid-template-columns: 2rem minmax(0, 1fr);
+	gap: 0.85rem;
+	align-items: center;
+	min-height: 3.25rem;
+	padding: 0.7rem 1rem;
+	text-decoration: none;
+}
+
+.learnomy-step a:hover {
+	background: var(--learnomy-subtle);
+}
+
+.learnomy-step:first-child a {
+	border-start-start-radius: var(--learnomy-radius);
+	border-start-end-radius: var(--learnomy-radius);
+}
+
+.learnomy-step:last-child a {
+	border-end-start-radius: var(--learnomy-radius);
+	border-end-end-radius: var(--learnomy-radius);
+}
+
+.learnomy-step__mark {
+	display: grid;
+	place-items: center;
+	width: 2rem;
+	height: 2rem;
+	border: 1.5px solid var(--learnomy-border-strong);
+	border-radius: 50%;
+	color: var(--learnomy-muted);
+	font-size: 0.85rem;
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+}
+
+.learnomy-step__mark svg {
+	display: none;
+	width: 1rem;
+	height: 1rem;
+}
+
+.learnomy-step__text {
+	display: grid;
+	gap: 0.1rem;
+}
+
+.learnomy-step__state {
+	color: var(--learnomy-muted);
+	font-size: 0.8rem;
+}
+
+.learnomy-step[data-learnomy-state="done"] .learnomy-step__mark {
+	border-color: var(--learnomy-brand);
+	background: var(--learnomy-brand);
+	color: var(--learnomy-on-brand);
+}
+
+.learnomy-step[data-learnomy-state="done"] .learnomy-step__mark svg {
+	display: block;
+}
+
+.learnomy-step[data-learnomy-state="done"] .learnomy-step__num {
+	display: none;
+}
+
+.learnomy-step[data-learnomy-state="current"] .learnomy-step__mark {
+	border-color: var(--learnomy-brand);
+	color: var(--learnomy-text);
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--learnomy-brand) 20%, transparent);
+}
+
+.learnomy-step [aria-current="page"] {
+	background: var(--learnomy-subtle);
+	font-weight: 600;
+}
+
+/* Reading column */
+.learnomy-prose {
+	max-width: var(--learnomy-measure);
+	font-size: 1.0625rem;
+	line-height: 1.75;
+}
+
+.learnomy .learnomy-prose > * + * {
+	margin-block-start: 1.1em;
+}
+
+.learnomy .learnomy-prose :is(h2, h3, h4) {
+	margin-block-start: 1.8em;
+}
+
+.learnomy-prose :is(ul, ol) {
+	padding-inline-start: 1.4em;
+	list-style: disc;
+}
+
+.learnomy-prose ol {
+	list-style: decimal;
+}
+
+.learnomy-prose li + li {
+	margin-block-start: 0.35em;
+}
+
+.learnomy-prose blockquote {
+	margin-inline: 0;
+	padding-inline-start: 1rem;
+	border-inline-start: 3px solid var(--learnomy-border-strong);
+	color: var(--learnomy-muted);
+}
+
+.learnomy-prose :is(img, video) {
+	max-width: 100%;
+	height: auto;
+	border-radius: var(--learnomy-radius-sm);
+}
+
+.learnomy-prose figcaption {
+	margin-block-start: 0.4rem;
+	color: var(--learnomy-muted);
+	font-size: 0.9rem;
+}
+
+.learnomy-prose code {
+	padding: 0.1em 0.35em;
+	border-radius: 4px;
+	background: var(--learnomy-subtle);
+	font-size: 0.9em;
+}
+
+.learnomy-prose pre {
+	overflow-x: auto;
+	padding: 1rem;
+	border-radius: var(--learnomy-radius-sm);
+	background: var(--learnomy-subtle);
+}
+
+.learnomy-prose pre code {
+	padding: 0;
+	background: none;
+}
+
+.learnomy-prose a {
+	color: var(--learnomy-brand);
+	text-underline-offset: 0.15em;
+}
+
+/* Lesson */
+.learnomy-lesson__grid {
+	display: grid;
+	gap: 1.5rem;
+	margin-block-start: 1.25rem;
+}
+
+.learnomy-lesson__main {
+	display: grid;
+	gap: 1.5rem;
+	align-content: start;
+	min-width: 0;
+}
+
+.learnomy-lesson__title {
+	display: grid;
+	gap: 0.5rem;
+	max-width: var(--learnomy-measure);
+}
+
+.learnomy-eyebrow {
+	color: var(--learnomy-muted);
+	font-size: 0.9rem;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+}
+
+.learnomy-outline {
+	align-self: start;
+	border: 1px solid var(--learnomy-border);
+	border-radius: var(--learnomy-radius);
+	background: var(--learnomy-surface);
+}
+
+.learnomy-outline__head {
+	display: grid;
+	gap: 0.15rem;
+	padding: 1rem 1rem 0.75rem;
+}
+
+.learnomy-outline__head a {
+	font-weight: 600;
+	text-decoration: none;
+}
+
+.learnomy-outline__head a:hover {
+	text-decoration: underline;
+}
+
+.learnomy-outline__toggle {
+	display: none;
+	width: 100%;
+	min-height: var(--learnomy-tap);
+	padding: 0.75rem 1rem;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	font-weight: 600;
+	text-align: start;
+	cursor: pointer;
+}
+
+.learnomy-outline__toggle::after {
+	content: "";
+	float: inline-end;
+	width: 0.55rem;
+	height: 0.55rem;
+	margin-block-start: 0.35rem;
+	border-inline-end: 2px solid currentColor;
+	border-block-end: 2px solid currentColor;
+	transform: rotate(45deg);
+	transition: transform 0.2s ease;
+}
+
+.learnomy-outline__toggle[aria-expanded="true"]::after {
+	transform: rotate(-135deg);
+}
+
+.learnomy-outline .learnomy-steps {
+	border: 0;
+	border-block-start: 1px solid var(--learnomy-border);
+	border-radius: 0 0 var(--learnomy-radius) var(--learnomy-radius);
+	background: transparent;
+}
+
+.learnomy-outline .learnomy-step a {
+	grid-template-columns: 1.6rem minmax(0, 1fr);
+	gap: 0.7rem;
+	min-height: 44px;
+	padding: 0.55rem 1rem;
+	font-size: 0.95rem;
+}
+
+.learnomy-outline .learnomy-step__mark {
+	width: 1.6rem;
+	height: 1.6rem;
+	font-size: 0.75rem;
+}
+
+.learnomy-outline .learnomy-step:first-child a {
+	border-radius: 0;
+}
+
+@media (max-width: 767.98px) {
+	.learnomy-outline[data-learnomy-js] .learnomy-outline__toggle {
+		display: block;
+	}
+
+	.learnomy-outline[data-learnomy-js] .learnomy-outline__head {
+		display: none;
+	}
+
+	.learnomy-outline[data-learnomy-js]:not([data-learnomy-open]) .learnomy-steps {
+		display: none;
+	}
+}
+
+@media (min-width: 768px) {
+	.learnomy-lesson__grid {
+		grid-template-columns: minmax(13rem, 16rem) minmax(0, 1fr);
+		gap: clamp(1.5rem, 4vw, 3.5rem);
+	}
+
+	.learnomy-lesson__grid--solo {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.learnomy-outline {
+		position: sticky;
+		top: 1.5rem;
+		max-height: calc(100vh - 3rem);
+		overflow-y: auto;
+	}
+}
+
+.learnomy-gate {
+	max-width: var(--learnomy-measure);
+}
+
+.learnomy-panel {
+	display: grid;
+	gap: 0.85rem;
+	justify-items: start;
+	max-width: var(--learnomy-measure);
+	padding: 1.1rem 1.25rem;
+	border: 1px solid var(--learnomy-border);
+	border-radius: var(--learnomy-radius);
+	background: var(--learnomy-surface);
+}
+
+.learnomy-pager {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 0.75rem;
+	max-width: var(--learnomy-measure);
+	padding-block-start: 1.5rem;
+	border-block-start: 1px solid var(--learnomy-border);
+}
+
+.learnomy-pager a {
+	display: grid;
+	gap: 0.15rem;
+	min-height: var(--learnomy-tap);
+	padding: 0.75rem 1rem;
+	border: 1px solid var(--learnomy-border);
+	border-radius: var(--learnomy-radius-sm);
+	text-decoration: none;
+}
+
+.learnomy-pager a:hover {
+	border-color: var(--learnomy-border-strong);
+	background: var(--learnomy-subtle);
+}
+
+.learnomy-pager span {
+	color: var(--learnomy-muted);
+	font-size: 0.85rem;
+}
+
+.learnomy-pager strong {
+	overflow-wrap: anywhere;
+}
+
+.learnomy-pager__next {
+	grid-column: 2;
+	text-align: end;
+}
+
+/* Quiz */
+.learnomy-quiz {
+	display: grid;
+	gap: 1.25rem;
+	max-width: var(--learnomy-measure);
+	padding-block-start: 1.5rem;
+	border-block-start: 1px solid var(--learnomy-border);
+}
+
+.learnomy-quiz form {
+	display: grid;
+	gap: 1.25rem;
+}
+
+.learnomy-q {
+	display: grid;
+	gap: 0.6rem;
+	margin: 0;
+	padding: 1.1rem 1.25rem 1.25rem;
+	border: 1px solid var(--learnomy-border);
+	border-radius: var(--learnomy-radius);
+	background: var(--learnomy-surface);
+}
+
+.learnomy-q legend {
+	float: left;
+	width: 100%;
+	margin-block-end: 0.4rem;
+	padding: 0;
+	font-weight: 600;
+}
+
+.learnomy-q legend + * {
+	clear: both;
+}
+
+.learnomy-q__num {
+	display: block;
+	color: var(--learnomy-muted);
+	font-size: 0.8rem;
+	font-weight: 600;
+	letter-spacing: 0.03em;
+	text-transform: uppercase;
+}
+
+.learnomy-choice {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	min-height: 48px;
+	padding: 0.6rem 0.9rem;
+	border: 1px solid var(--learnomy-border);
+	border-radius: var(--learnomy-radius-sm);
+	cursor: pointer;
+}
+
+.learnomy-choice:hover {
+	border-color: var(--learnomy-border-strong);
+	background: var(--learnomy-subtle);
+}
+
+.learnomy-choice input {
+	flex: none;
+	width: 1.25rem;
+	height: 1.25rem;
+	margin: 0;
+	accent-color: var(--learnomy-brand);
+}
+
+.learnomy-choice:has(input:checked) {
+	border-color: var(--learnomy-brand);
+	box-shadow: inset 0 0 0 1px var(--learnomy-brand);
+}
+
+.learnomy-choice:has(input:focus-visible) {
+	outline: 2px solid var(--learnomy-brand);
+	outline-offset: 2px;
+}
+
+.learnomy-q__result {
+	display: none;
+	align-items: center;
+	gap: 0.4rem;
+	font-weight: 600;
+}
+
+.learnomy-q[data-learnomy-result] .learnomy-q__result {
+	display: inline-flex;
+}
+
+.learnomy-q[data-learnomy-result="right"] {
+	border-color: var(--learnomy-brand);
+}
+
+.learnomy-q[data-learnomy-result="wrong"] {
+	border-color: var(--learnomy-danger);
+}
+
+.learnomy-q[data-learnomy-result="wrong"] .learnomy-q__result {
+	color: var(--learnomy-danger);
+}
+
+.learnomy-score {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.5rem 1rem;
+	padding: 1rem 1.25rem;
+	border-radius: var(--learnomy-radius);
+	background: var(--learnomy-subtle);
+	font-size: 1.1rem;
+	font-weight: 600;
+}
+
+/* Your courses */
+.learnomy-mine {
+	display: grid;
+	gap: 1rem;
+}
+
+.learnomy-rows {
+	display: grid;
+	padding: 0;
+	border: 1px solid var(--learnomy-border);
+	border-radius: var(--learnomy-radius);
+	background: var(--learnomy-surface);
+	list-style: none;
+}
+
+.learnomy-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: 0.6rem 1.25rem;
+	align-items: center;
+	padding: 1rem 1.25rem;
+}
+
+.learnomy-row + .learnomy-row {
+	border-block-start: 1px solid var(--learnomy-border);
+}
+
+.learnomy-row__title {
+	font-weight: 600;
+	text-decoration: none;
+}
+
+.learnomy-row__title:hover {
+	text-decoration: underline;
+}
+
+.learnomy-row .learnomy-progress {
+	grid-column: 1;
+}
+
+.learnomy-row .learnomy-btn {
+	grid-row: 1 / span 2;
+	grid-column: 2;
+}
+
+@media (max-width: 479.98px) {
+	.learnomy-row {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.learnomy-row .learnomy-btn {
+		grid-row: auto;
+		grid-column: 1;
+		justify-self: start;
+	}
+}
+
+.learnomy-erase {
+	display: grid;
+	gap: 0.6rem;
+	justify-items: start;
+	padding-block-start: 1rem;
+	border-block-start: 1px solid var(--learnomy-border);
+}
+
+.learnomy-erase .learnomy-actions {
+	gap: 0.6rem;
+}
+
+.learnomy-btn--danger {
+	border-color: var(--learnomy-danger);
+	background: transparent;
+	color: var(--learnomy-danger);
+}
+
+.learnomy-btn--danger:hover {
+	background: color-mix(in srgb, var(--learnomy-danger) 10%, transparent);
+	filter: none;
+}
+
+@media (max-width: 479.98px) {
+	.learnomy-pager {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.learnomy-pager__next {
+		grid-column: 1;
+	}
+
+	.learnomy-actions > .learnomy-btn {
+		flex: 1 1 100%;
+	}
+}
+
+.learnomy-actions:empty {
+	display: none;
+}

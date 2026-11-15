@@ -1,0 +1,122 @@
+---
+/**
+ * Your courses: the signed-in member's courses with progress, and erase of their own course data.
+ * Mount it on your site's account page:
+ *   import LearnomyMyCourses from "../components/LearnomyMyCourses.astro";
+ *   <LearnomyMyCourses />
+ */
+import "../styles/learnomy.css";
+import { S } from "../lib/learnomy-strings";
+
+interface Props {
+	/** Heading level, so it fits the account page around it. */
+	level?: 2 | 3;
+}
+const { level = 2 } = Astro.props;
+const Heading = `h${level}` as const;
+---
+
+<section class="learnomy learnomy-mine" aria-labelledby="learnomy-mine-heading" aria-busy="true" data-learnomy-mine>
+	<Heading id="learnomy-mine-heading" data-learnomy-mine-heading>{S.mine.heading}</Heading>
+	<div data-learnomy-mine-body>
+		<div class="learnomy-skeleton" data-learnomy-mine-loading>
+			<span class="learnomy-sr" aria-live="polite">{S.mine.loading}</span>
+			<span aria-hidden="true"></span>
+			<span aria-hidden="true"></span>
+			<span aria-hidden="true"></span>
+		</div>
+	</div>
+	<p class="learnomy-status" role="status" aria-live="polite" data-learnomy-mine-status></p>
+</section>
+
+<script>
+	import { api, esc, signInUrl } from "../lib/wbcom-kit";
+	import { courseHref, percent, PLUGIN } from "../lib/learnomy";
+	import { S } from "../lib/learnomy-strings";
+
+	/** One row of myCourses: progress is counted on the course's published lessons, as on the course page. */
+	type Item = { course: string; slug: string; title: string; available: boolean; done: number; total: number; finished: boolean };
+
+	function rowHtml(item: Item): string {
+		const title = esc(item.title || S.catalog.title);
+		// A course that was deleted or unpublished: named, no link, and its data can still be erased below.
+		if (!item.available) {
+			return `<li class="learnomy-row" data-learnomy-mine-row="${esc(item.course)}" data-learnomy-mine-gone><span class="learnomy-row__title">${title}</span><div class="learnomy-progress"><span class="learnomy-muted">${esc(S.mine.gone)}</span></div></li>`;
+		}
+		const href = courseHref(item.slug || item.course);
+		const progress = item.finished
+			? `<span class="learnomy-badge learnomy-badge--done">${esc(S.mine.completed)}</span>`
+			: `<span>${esc(S.progress(item.done, item.total))}</span><span class="learnomy-progress__track" aria-hidden="true"><span class="learnomy-progress__fill" style="width:${percent(item.done, item.total)}%"></span></span>`;
+		const action = item.finished ? S.mine.review : S.mine.continue;
+		return `<li class="learnomy-row" data-learnomy-mine-row="${esc(item.course)}"><a class="learnomy-row__title" href="${esc(href)}">${title}</a><div class="learnomy-progress">${progress}</div><a class="learnomy-btn ${item.finished ? "learnomy-btn--quiet" : ""}" href="${esc(href)}" aria-label="${esc(`${action}: ${item.title}`)}">${esc(action)}</a></li>`;
+	}
+
+	function eraseHtml(): string {
+		return `<div class="learnomy-erase" data-learnomy-erase><p class="learnomy-muted">${esc(S.mine.eraseHelp)}</p><div class="learnomy-actions" data-learnomy-erase-actions><button class="learnomy-btn learnomy-btn--quiet" type="button" data-learnomy-erase-start>${esc(S.mine.erase)}</button></div></div>`;
+	}
+
+	function paint(root: HTMLElement, items: Item[]) {
+		const body = root.querySelector<HTMLElement>("[data-learnomy-mine-body]")!;
+		// Erase is always offered to a signed-in member: quiz scores can exist without an enrollment.
+		body.innerHTML = `${
+			items.length
+				? `<ul class="learnomy-rows" data-learnomy-mine-list>${items.map(rowHtml).join("")}</ul>`
+				: `<div class="learnomy-notice" data-learnomy-mine-empty><strong>${esc(S.mine.empty)}</strong><a class="learnomy-btn" href="/courses/">${esc(S.mine.browse)}</a></div>`
+		}${eraseHtml()}`;
+		bindErase(root);
+	}
+
+	function bindErase(root: HTMLElement) {
+		const actions = root.querySelector<HTMLElement>("[data-learnomy-erase-actions]");
+		const status = root.querySelector<HTMLElement>("[data-learnomy-mine-status]")!;
+		if (!actions) return;
+		const ask = () => {
+			actions.innerHTML = `<span class="learnomy-status">${esc(S.mine.eraseConfirm)}</span><button class="learnomy-btn learnomy-btn--danger" type="button" data-learnomy-erase-yes>${esc(S.mine.eraseYes)}</button><button class="learnomy-btn learnomy-btn--quiet" type="button" data-learnomy-erase-no>${esc(S.mine.eraseNo)}</button>`;
+			const yes = actions.querySelector<HTMLButtonElement>("[data-learnomy-erase-yes]")!;
+			yes.focus();
+			actions.querySelector("[data-learnomy-erase-no]")!.addEventListener("click", () => {
+				actions.innerHTML = `<button class="learnomy-btn learnomy-btn--quiet" type="button" data-learnomy-erase-start>${esc(S.mine.erase)}</button>`;
+				actions.querySelector<HTMLButtonElement>("[data-learnomy-erase-start]")!.addEventListener("click", ask);
+				actions.querySelector<HTMLButtonElement>("[data-learnomy-erase-start]")!.focus();
+			});
+			yes.addEventListener("click", async () => {
+				yes.setAttribute("aria-busy", "true");
+				yes.textContent = S.mine.erasing;
+				root.setAttribute("aria-busy", "true");
+				// A member with very many rows is erased in rounds: the route answers done: false until finished.
+				let result = await api(PLUGIN, "eraseMember", {});
+				for (let round = 0; round < 50 && result.ok && result.done === false; round += 1) result = await api(PLUGIN, "eraseMember", {});
+				root.removeAttribute("aria-busy");
+				if (!result.ok || result.done === false) {
+					yes.removeAttribute("aria-busy");
+					yes.textContent = S.mine.eraseYes;
+					status.dataset.tone = "error";
+					status.textContent = result.error?.message || S.mine.eraseFailed;
+					return;
+				}
+				paint(root, []);
+				status.dataset.tone = "";
+				status.textContent = S.mine.erased;
+			});
+		};
+		actions.querySelector<HTMLButtonElement>("[data-learnomy-erase-start]")!.addEventListener("click", ask);
+	}
+
+	async function load(root: HTMLElement) {
+		const body = root.querySelector<HTMLElement>("[data-learnomy-mine-body]")!;
+		const result = await api(PLUGIN, "myCourses");
+		root.removeAttribute("aria-busy");
+		if (result.ok) return paint(root, (result.items as Item[]) ?? []);
+		if (result.error?.code === "SIGN_IN_REQUIRED") {
+			body.innerHTML = `<div class="learnomy-notice" data-learnomy-mine-signin><strong>${esc(S.mine.signIn)}</strong><a class="learnomy-btn" href="${esc(signInUrl())}">${esc(S.common.signIn)}</a></div>`;
+			return;
+		}
+		body.innerHTML = `<div class="learnomy-notice learnomy-notice--error" role="alert" data-learnomy-mine-failed><strong>${esc(S.mine.failed)}</strong><button class="learnomy-btn learnomy-btn--quiet" type="button" data-learnomy-mine-retry>${esc(S.common.tryAgain)}</button></div>`;
+		body.querySelector("[data-learnomy-mine-retry]")!.addEventListener("click", () => {
+			root.setAttribute("aria-busy", "true");
+			void load(root);
+		});
+	}
+
+	document.querySelectorAll<HTMLElement>("[data-learnomy-mine]").forEach((root) => void load(root));
+</script>

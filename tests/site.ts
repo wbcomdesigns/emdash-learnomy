@@ -1,5 +1,7 @@
 import { createPluginRuntimeTestHost } from "@emdash-cms/plugin-test";
 
+import seed from "../site-kit/seed/learnomy-seed.json";
+
 export const member = (id: string, role = 10) => ({
 	id,
 	email: `${id}@example.com`,
@@ -9,31 +11,54 @@ export const member = (id: string, role = 10) => ({
 });
 export const ana = member("ana");
 export const ben = member("ben");
-export const admin = member("root", 50);
 
-/**
- * A real test site. The plain test host cannot publish content, so tests that need a
- * published entry use this. Call dispose() in afterEach.
- */
+type Out = Record<string, unknown> & { ok?: boolean; error?: { code: string } };
+
+/** A test site with the Learnomy seed collections. Call dispose() in afterEach. */
 export async function openSite() {
 	const rt = await createPluginRuntimeTestHost();
-	const call = rt.transport.invokeRoute.bind(rt.transport);
-	const asGuest = { method: "POST" };
-	const as = (user: ReturnType<typeof member>, method = "POST") => ({ method, user });
-	return { rt, call, as, asGuest, dispose: () => rt.dispose() };
+	for (const collection of seed.collections) await rt.fixtures.collection(collection as never);
+	const get = (name: string, input?: unknown, user?: ReturnType<typeof member>) =>
+		rt.transport.invokeRoute(name, input, { method: "GET", ...(user ? { user } : {}) } as never) as Promise<Out>;
+	const post = (name: string, input: unknown, user?: ReturnType<typeof member>) =>
+		rt.transport.invokeRoute(name, input, { method: "POST", ...(user ? { user } : {}) } as never) as Promise<Out>;
+	const entry = async (collection: string, title: string, status = "published") =>
+		(await rt.fixtures.content(collection, { data: { title, ...(collection === "lms_courses" ? { access: "open" } : {}) }, slug: title.toLowerCase().replaceAll(" ", "-"), status } as never)).id as string;
+	return { rt, get, post, entry, dispose: () => rt.dispose() };
 }
 
-/** Add a posts collection with one public post and one draft. */
-export async function withPosts(rt: Awaited<ReturnType<typeof openSite>>["rt"]) {
-	await rt.fixtures.collection({
-		slug: "posts",
-		label: "Posts",
-		labelSingular: "Post",
-		urlPattern: "/posts/{slug}",
-		supports: ["drafts", "revisions"],
-		fields: [{ slug: "title", label: "Title", type: "string", required: true }],
-	} as never);
-	const live = await rt.fixtures.content("posts", { data: { title: "Good Soup" }, slug: "good-soup", status: "published" } as never);
-	const draft = await rt.fixtures.content("posts", { data: { title: "Secret Draft" }, slug: "secret-draft" } as never);
-	return { live: live.id, draft: draft.id };
+/** Outline lessons as the public outline route answers them: with the slug entry() gave each. */
+export const slugged = (lessons: Array<{ id: string; title: string }>) => lessons.map((l) => ({ ...l, slug: l.title.toLowerCase().replaceAll(" ", "-") }));
+
+export type Site = Awaited<ReturnType<typeof openSite>>;
+
+/** A published course with an outline of `n` published lessons, in order. */
+export async function courseWithOutline(site: Site, n = 3, title = "Course A") {
+	const course = await site.entry("lms_courses", title);
+	const lessons: Array<{ id: string; title: string }> = [];
+	for (let i = 1; i <= n; i += 1) {
+		const name = `${title} lesson ${i}`;
+		lessons.push({ id: await site.entry("lms_lessons", name), title: name });
+	}
+	await site.rt.fixtures.plugin.storage("outlines", course, { courseKey: course, courseTitle: title, lessons, updatedAt: "2026-11-15T00:00:00.000Z", rev: "r1" });
+	return { course, lessons };
+}
+
+export const QUIZ = {
+	title: "Check yourself",
+	lessonKey: "lesson-1",
+	questions: [
+		{ type: "choice", prompt: "Pick C", answers: ["A", "B", "C", "D"], correct: 2 },
+		{ type: "true_false", prompt: "The sky is blue", correct: 0 },
+	],
+	updatedAt: "2026-11-15T00:00:00.000Z",
+	rev: "q1",
+};
+
+/** A quiz stored on a fresh lesson (published unless said), the way the Quizzes page leaves it. */
+export async function quizOnLesson(site: Site, id = "q1", status = "published", quiz: Record<string, unknown> = QUIZ) {
+	const lesson = await site.entry("lms_lessons", `Lesson for ${id}`, status);
+	await site.rt.fixtures.plugin.storage("quizzes", id, { ...quiz, lessonKey: lesson });
+	await site.rt.fixtures.plugin.kv(`state:lesson-quiz:${lesson}`, id);
+	return lesson;
 }

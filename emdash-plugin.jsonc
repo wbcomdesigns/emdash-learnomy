@@ -3,6 +3,7 @@
 
 	"slug": "learnomy",
 	"name": "Learnomy",
+	"keywords": ["lms", "courses", "lessons", "quizzes", "learning"],
 	"publisher": "did:plc:2o6axbe264shvyedyhycyhya",
 
 	"license": "MIT",
@@ -11,10 +12,46 @@
 	"security": { "email": "security@wbcomdesigns.com" },
 	"description": "Free courses for your EmDash site: lessons in the editor, free enrollment, progress and a quiz per lesson. No payments.",
 
-	"capabilities": [],
+	"sections": {
+		"description": { "file": "./docs/registry/description.md" },
+		"installation": { "file": "./docs/registry/installation.md" },
+		"faq": { "file": "./docs/registry/faq.md" },
+		"changelog": { "file": "./docs/registry/changelog.md" }
+	},
+	"release": {
+		"requires": { "env:emdash": ">=1.5.0" },
+		"artifacts": {
+			"icon": { "file": "./icon.png" },
+			"banner": { "file": "./images/banner.png" },
+			"screenshots": [
+				{ "file": "./images/screenshot-1-catalog.jpg" },
+				{ "file": "./images/screenshot-2-course.jpg" },
+				{ "file": "./images/screenshot-3-lesson.jpg" },
+				{ "file": "./images/screenshot-4-quiz.jpg" },
+				{ "file": "./images/screenshot-5-members-guest.jpg" },
+				{ "file": "./images/screenshot-6-your-courses.jpg" },
+				{ "file": "./images/screenshot-7-admin-outline.jpg" },
+				{ "file": "./images/screenshot-8-admin-quiz.jpg" }
+			]
+		}
+	},
+
+	"capabilities": ["content:read", "users:read"],
 	"allowedHosts": [],
-	"storage": {},
+	"storage": {
+		"outlines": { "indexes": ["updatedAt"] },
+		"enrollments": { "indexes": [["courseKey", "startedAt"], ["memberId", "updatedAt"]] },
+		"quizzes": { "indexes": ["updatedAt", "lessonKey"] },
+		"attempts": { "indexes": [["quizId", "submittedAt"], ["memberId", "submittedAt"]] }
+	},
 	"admin": {
-		"pages": [{ "path": "/home", "label": "Starter", "icon": "sparkle" }]
+		"pages": [
+			{ "path": "/outline", "label": "Course outline", "icon": "list" },
+			{ "path": "/quizzes", "label": "Quizzes", "icon": "check" },
+			{ "path": "/enrollments", "label": "Enrollments", "icon": "users" },
+			{ "path": "/results", "label": "Quiz results", "icon": "chart" }
+		],
+		"widgets": [{ "id": "summary", "title": "Learnomy", "size": "half" }],
+		"editorPanels": [{ "id": "courses", "title": "Learnomy", "route": "panel", "collections": ["lms_lessons"] }]
 	}
 }
