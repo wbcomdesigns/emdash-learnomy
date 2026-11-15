@@ -12,6 +12,7 @@ Learnomy needs EmDash 1.5.0 or later. Checked on EmDash 1.5.0 with the `blog` te
 
 - **Node:** in your site, run `npm install @emdash-cms/sandbox-workerd workerd`, then add `sandboxRunner: "@emdash-cms/sandbox-workerd/sandbox",` inside `emdash({ ... })` in `astro.config.mjs`.
 - **Cloudflare:** add `import { sandbox } from "@emdash-cms/cloudflare";` and `sandboxRunner: sandbox(),`. It needs the Workers Paid plan, the `worker_loaders` binding named `LOADER` (uncomment it in your Wrangler config) and an R2 bucket as `storage: r2(...)`. Then run `npm run deploy`.
+- **On Cloudflare, redeploy after installing or updating.** Cloudflare runs several copies of your site at once, and EmDash refreshes the plugin list only in the copy that handled the install or update (seen on EmDash 1.5). Until you redeploy (`npm run deploy`), some requests to the plugin can answer "Plugin route not found" and its admin pages can show a plugin error. EmDash is tracking a fix in [emdash-cms/emdash#4865](https://github.com/emdash-cms/emdash/issues/4865).
 
 Stop the dev server and start it again. **Registry** now shows in the dashboard menu.
 
