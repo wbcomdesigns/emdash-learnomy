@@ -32,7 +32,7 @@ The member is always the signed-in account. A member id in the input is never us
 | `enroll` | POST | `course` | The new enrollment. `ALREADY_ENROLLED` the second time |
 | `completeLesson` | POST | `course`, `lesson` | The updated enrollment. `completedAt` is set the first time every published lesson of the outline is done (a draft, scheduled or deleted lesson does not hold the course open). `NOT_ENROLLED`, `LESSON_NOT_IN_COURSE`, `QUIZ_NOT_PASSED` (the lesson's graded quiz has a pass mark the member's best score has not reached) |
 | `submitQuiz` | POST | `quiz`, `answers`: one per question: a number 0 to 3 (`choice`, `true_false`), a list of numbers (`multi`) or text (`short`, `blank`) | `score`, `total`, `percent`, which questions were right, `mode` and the member's standing as in `mine`. Only a practice quiz adds `review`: each question's right answer and explanation. Refused with `NO_ATTEMPTS_LEFT`, or `RETRY_LATER` with `retryAt` |
-| `eraseMember` | POST | none | Deletes the member's enrollments and quiz results with every past attempt. For quizzes with a maximum number of attempts or a wait it keeps only the attempts used and the last attempt time, so the limit still applies (the admin erase removes that too). `done: false` means call it again |
+| `eraseMember` | POST | none | Deletes the member's enrollments and quiz results with every past attempt. For every quiz the member took that still exists it keeps only the attempts used and the last attempt time, so a limit set now or later still applies; records of deleted quizzes are removed (the admin erase removes all of them). `done: false` means call it again |
 
 A guest calling a member route gets `SIGN_IN_REQUIRED`.
 

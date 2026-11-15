@@ -36,7 +36,7 @@ Yes, if you give it a pass mark. A member must reach the pass mark on a graded q
 Yes, per quiz: unlimited, a maximum number of attempts, or a wait between attempts. Members see how many attempts are left and when they can try again.
 
 **Can a member reset an attempt limit by erasing their data?**
-No. Their own erase removes their progress, answers and scores but keeps how many attempts they used on quizzes with a limit or a wait. You can reset a member completely with Erase their data on Enrollments or Quiz results.
+No. Their own erase removes their progress, answers and scores but keeps how many attempts they used on each quiz they took, so a limit or a wait applies even if you add it later. You can reset a member completely with Erase their data on Enrollments or Quiz results.
 
 **Do members see the right answers?**
 Only on a practice quiz, after they submit, with your explanation for each question if you wrote one. On a graded quiz they see which answers were right or wrong, never the correct answers.
