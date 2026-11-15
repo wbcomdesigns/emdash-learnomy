@@ -35,7 +35,7 @@ describe("Course outline page", () => {
 		const ids = [await s.entry("lms_lessons", "Knead"), await s.entry("lms_lessons", "Proof"), await s.entry("lms_lessons", "Bake", "draft")];
 		const admin = s.rt.admin;
 		let page = (await admin.loadPage("/outline", { user: root })) as R;
-		expect(table(page)!.rows[0]).toMatchObject({ course: "Bread Basics", lessons: 0 });
+		expect(table(page)!.rows[0]).toMatchObject({ course: "Bread Basics (0 lessons)" });
 		page = (await admin.act("/outline", "outline_open", { value: cellButton(page, 0, "open").value, user: root })) as R;
 		expect(visible(page)).toContain("No lessons in this outline yet");
 		page = (await admin.act("/outline", "outline_add", { value: { c: course }, user: root })) as R;
@@ -111,7 +111,7 @@ describe("Quizzes page", () => {
 		expect(second.toast!.message).toContain("Someone else changed this quiz");
 		expect((await admin.act("/quizzes", "quiz_delete", { value: { q: "q1", r: "q1" }, user: root })).toast).toMatchObject({ type: "error" });
 		const list = (await admin.loadPage("/quizzes", { user: root })) as R;
-		expect(table(list)!.rows[0].quiz).toBe("Renamed in tab 1");
+		expect(table(list)!.rows[0].quiz).toBe("Renamed in tab 1 (2 questions)");
 		const quizPage = (await admin.act("/quizzes", "quiz_open", { value: cellButton(list, 0, "open").value, user: root })) as R;
 		// Removing a question asks once on the page, naming it.
 		const asked = (await admin.act("/quizzes", "question_menu", { value: JSON.stringify({ a: "ask", q: "q1", i: 0 }), user: root })) as R;
@@ -143,14 +143,14 @@ describe("A quiz picks its lesson", () => {
 		// A second quiz cannot take the same lesson: the list says which quiz has it, and a forced save is refused.
 		const second = await make("Second quiz");
 		pick = (await admin.act("/quizzes", "quiz_lessons", { value: { q: second.id }, user: root })) as R;
-		const taken = table(pick)!.rows.find((r: { lesson: string }) => r.lesson === "Kneading");
-		expect(taken).toMatchObject({ quiz: "First quiz", pick: null });
+		const taken = table(pick)!.rows.find((r: { lesson: string }) => r.lesson.startsWith("Kneading"));
+		expect(taken).toMatchObject({ lesson: "Kneading (quiz: First quiz)", pick: null });
 		const rev = (await s.rt.inspect.storage.get<{ rev: string }>("quizzes", second.id))!.rev;
 		page = (await admin.act("/quizzes", "quiz_lesson_set", { value: { q: second.id, l: lesson, r: rev }, user: root })) as R;
 		expect(page.toast!.message).toContain('That lesson already has the quiz "First quiz"');
 		// The public route finds the quiz by its lesson; the panel shows it and opens it.
 		// Found by its lesson: a quiz without questions yet answers QUIZ_EMPTY, a lesson without one QUIZ_NOT_FOUND.
-		expect((await s.get("quiz", { lesson })).error?.code).toBe("QUIZ_EMPTY");
+		expect((await s.get("memberQuiz", { lesson }, member("ana"))).error?.code).toBe("QUIZ_EMPTY");
 		const panel = (await admin.loadEditorPanel("courses", "lms_lessons", lesson, { user: root })) as R;
 		expect(visible(panel)).toContain("Quiz: First quiz");
 		const go = (await admin.actEditorPanel("courses", "lms_lessons", lesson, "open_quiz", { value: { q: first.id }, user: root })) as R;
@@ -166,6 +166,46 @@ describe("A quiz picks its lesson", () => {
 		const r3 = (await s.rt.inspect.storage.get<{ rev: string }>("quizzes", first.id))!.rev;
 		expect((await admin.act("/quizzes", "quiz_lesson_set", { value: { q: first.id, l: lesson, r: r3 }, user: root })).toast).toMatchObject({ type: "success" });
 		expect(visible(panel)).not.toContain(lesson);
+	});
+
+	it("a stale lesson marker whose quiz moved or was deleted frees the lesson; an invalid holder still keeps it (L1)", async () => {
+		const s = (site = await openSite());
+		const call = (input: unknown) => s.rt.transport.invokeRoute("tools/saveQuiz", input, { method: "POST", user: root } as never) as Promise<Record<string, any>>;
+		const lesson = await s.entry("lms_lessons", "Marked");
+		const other = await s.entry("lms_lessons", "Elsewhere");
+		// The marker still names quiz "moved", which now sits on another lesson (freeing failed).
+		await s.rt.fixtures.plugin.storage("quizzes", "moved", { ...QUIZ, lessonKey: other });
+		await s.rt.fixtures.plugin.kv(`state:lesson-quiz:${lesson}`, "moved");
+		expect((await call({ title: "Takes it", questions: QUIZ.questions, lesson })).ok).toBe(true);
+		// A marker naming a deleted quiz is taken over too.
+		const second = await s.entry("lms_lessons", "Orphan marker");
+		await s.rt.fixtures.plugin.kv(`state:lesson-quiz:${second}`, "deleted-quiz");
+		expect((await call({ title: "Takes the orphan", questions: QUIZ.questions, lesson: second })).ok).toBe(true);
+		// A stored quiz that fails the schema but still names the lesson keeps it: no second quiz on it.
+		const third = await s.entry("lms_lessons", "Held by a broken quiz");
+		await s.rt.fixtures.plugin.storage("quizzes", "broken", { title: "Broken", lessonKey: third, questions: [{ type: "essay" }], updatedAt: "x", rev: "r" });
+		await s.rt.fixtures.plugin.kv(`state:lesson-quiz:${third}`, "broken");
+		expect((await call({ title: "Refused", questions: QUIZ.questions, lesson: third })).error.code).toBe("LESSON_HAS_QUIZ");
+	});
+
+	it("says which part of a quiz is too long, and counts one lesson as \"1 lesson\" (#13)", async () => {
+		const s = (site = await openSite());
+		const call = (input: unknown) => s.rt.transport.invokeRoute("tools/saveQuiz", input, { method: "POST", user: root } as never) as Promise<Record<string, any>>;
+		const made = await call({ title: "Short", questions: [] });
+		const admin = s.rt.admin;
+		const long = "x".repeat(501);
+		const page = (await admin.submit("/quizzes", "question_add", { type: "true_false", prompt: long, correct_tf: "0" }, { blockId: `qa|${made.id}|${made.quiz.rev}`, user: root })) as R;
+		expect(page.toast!.message).toBe("Keep the question under 500 characters.");
+		const answer = (await admin.submit("/quizzes", "question_add", { type: "choice", prompt: "Q", answer_0: "x".repeat(201), answer_1: "b", answer_2: "c", answer_3: "d", correct_choice: "0" }, { blockId: `qa|${made.id}|${made.quiz.rev}`, user: root })) as R;
+		expect(answer.toast!.message).toBe("Keep each answer under 200 characters.");
+		const title = (await admin.submit("/quizzes", "quiz_title", { title: "t".repeat(201) }, { blockId: `qt|${made.id}|${made.quiz.rev}`, user: root })) as R;
+		expect(title.toast!.message).toBe("Keep the quiz title under 200 characters.");
+		const course = await s.entry("lms_courses", "One lesson course");
+		const l1 = await s.entry("lms_lessons", "Only lesson");
+		await s.rt.transport.invokeRoute("tools/setOutline", { course, lessons: [l1] }, { method: "POST", user: root } as never);
+		const add = (await admin.act("/outline", "outline_add", { value: { c: course }, user: root })) as R;
+		expect(visible(add)).toContain("1 lesson in this course so far.");
+		expect(visible((await admin.act("/outline", "outline_open", { value: { c: course }, user: root })) as R)).toContain("1 lesson. Visitors see");
 	});
 
 	it("two saves putting different quizzes on one lesson at the same moment: exactly one wins", async () => {
@@ -197,7 +237,7 @@ describe("Enrollments and Quiz results", () => {
 		const admin = s.rt.admin;
 		let page = (await admin.loadPage("/enrollments", { user: root })) as R;
 		expect(table(page)!.rows).toHaveLength(15);
-		expect(table(page)!.rows[0]).toMatchObject({ member: "Ben Ito", course: "Course 19", progress: "0 of 0 lessons" });
+		expect(table(page)!.rows[0]).toMatchObject({ member: "Ben Ito", course: "Course 19: 0 of 0 lessons" });
 		expect(visible(page)).not.toContain(ana.id);
 		const next = page.blocks.find((b) => b.type === "actions")!.elements.find((e: { label: string }) => e.label === "Next page");
 		page = (await admin.act("/enrollments", "enrollments_page", { value: next.value, user: root })) as R;
@@ -207,7 +247,7 @@ describe("Enrollments and Quiz results", () => {
 		page = (await admin.submit("/enrollments", "enrollments_find", { find: "ana@example.com" }, { user: root })) as R;
 		expect(table(page)!.rows).toHaveLength(15);
 		const results = (await admin.loadPage("/results", { user: root })) as R;
-		expect(table(results)!.rows[0]).toMatchObject({ member: "Ana Lopez", quiz: "Check yourself", score: "1 of 2" });
+		expect(table(results)!.rows[0]).toMatchObject({ member: "Ana Lopez", quiz: "Check yourself: 1 of 2, 1 Nov 2026" });
 		const anaRow = table(page)!.rows[0];
 		const ask = (await admin.act("/enrollments", "member_menu", { value: anaRow.erase.items[0].value, user: root })) as R;
 		expect(visible(ask)).toContain("Erase Ana Lopez's Learnomy data?");
@@ -217,6 +257,32 @@ describe("Enrollments and Quiz results", () => {
 		expect((await s.rt.inspect.storage.list("enrollments")).map((r) => r.id).every((id) => id.startsWith(ben.id))).toBe(true);
 		expect(await s.rt.inspect.storage.list("attempts")).toHaveLength(0);
 		expect(visible((await admin.loadPage("/results", { user: root })) as R)).toContain("No quiz results yet");
+	});
+
+	it("progress never counts a done lesson that left the outline: never \"7 of 5\" (L2)", async () => {
+		const s = (site = await openSite());
+		const a = await courseWithOutline(s, 2, "Course A");
+		await s.rt.fixtures.plugin.storage("enrollments", `ana:${a.course}`, { memberId: "ana", courseKey: a.course, courseTitle: "Course A", startedAt: "2026-11-01T00:00:00.000Z", updatedAt: "2026-11-01T00:00:00.000Z", completedAt: null, done: ["gone-1", "gone-2", a.lessons[0]!.id] });
+		expect(table((await s.rt.admin.loadPage("/enrollments", { user: root })) as R)!.rows[0]).toMatchObject({ course: "Course A: 1 of 2 lessons" });
+	});
+
+	it("a member with quiz results and no enrollment can be erased from Quiz results, which it returns to (M3)", async () => {
+		const s = (site = await openSite());
+		const cara = await s.rt.fixtures.user({ email: "cara@example.com", name: "Cara Diaz", role: "subscriber" });
+		await s.rt.fixtures.plugin.storage("quizzes", "q1", QUIZ);
+		await s.rt.fixtures.plugin.storage("attempts", `${cara.id}:q1`, { memberId: cara.id, quizId: "q1", lessonKey: "", score: 1, total: 2, answers: [2, 1], submittedAt: "2026-11-01T00:00:00.000Z" });
+		const admin = s.rt.admin;
+		const results = (await admin.loadPage("/results", { user: root })) as R;
+		const row = table(results)!.rows[0];
+		expect(row.erase).toMatchObject({ type: "menu", label: "Manage" });
+		expect(table(results)!.columns.at(-1)).toMatchObject({ label: "Actions" });
+		const ask = (await admin.act("/results", "member_menu", { value: row.erase.items[0].value, user: root })) as R;
+		expect(visible(ask)).toContain("Erase Cara Diaz's Learnomy data?");
+		const confirm = ask.blocks.find((b) => b.type === "actions")!.elements[0];
+		const erased = (await admin.act("/results", "member_erase", { value: confirm.value, user: root })) as R;
+		expect(erased.toast?.type).toBe("success");
+		expect(erased.blocks.find((b) => b.type === "actions")!.elements[0]).toMatchObject({ label: "Show quiz results", action_id: "results_page" });
+		expect(await s.rt.inspect.storage.list("attempts")).toHaveLength(0);
 	});
 });
 
@@ -244,6 +310,13 @@ describe("Lesson panel and dashboard card", () => {
 		const card = (await s.rt.admin.loadWidget("summary", { user: root })) as R;
 		expect(card.blocks[0]!.fields.map((i: { label: string; value: unknown }) => [i.label, i.value])).toEqual([["Published courses", "1"], ["Enrollments", "1"], ["Quiz results", "0"]]);
 		expect(card.blocks[1]!.elements.map((e: { label: string }) => e.label)).toEqual(["New course", "Course outline"]);
+	});
+
+	it("dashboard card works before the Site URL is set: New course is a relative admin link (#7)", async () => {
+		const s = (site = await openSite());
+		await s.rt.fixtures.site({ url: "" });
+		const card = (await s.rt.admin.loadWidget("summary", { user: root })) as R;
+		expect(card.blocks[1]!.elements[0]).toMatchObject({ label: "New course", target: { kind: "content", collection: "lms_courses", id: "new" } });
 	});
 });
 

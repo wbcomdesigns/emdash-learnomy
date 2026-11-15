@@ -1,5 +1,6 @@
 import { MAX_QUESTIONS, quiz as quizSchema, type Question, type Quiz } from "../schemas";
 import { type Ctx, type Fail, fail, newId, newRev, nowIso, parse, STALE } from "./common";
+import { asRecord, asString } from "../util";
 
 export const PAGE = 25;
 const TOO_MANY = fail("TOO_MANY_QUESTIONS", `A quiz holds at most ${MAX_QUESTIONS} questions.`);
@@ -8,10 +9,19 @@ export async function getQuiz(ctx: Ctx, id: string): Promise<Quiz | null> {
 	return parse(quizSchema, await ctx.storage.quizzes!.get(id));
 }
 
-/** Plain words for what is wrong with one question, or null. */
+/** Plain words for what is wrong with one question, or null. Limits match the quiz schema. */
 export function questionProblem(q: Question): string | null {
 	if (!q.prompt.trim()) return "Write the question first.";
+	if (q.prompt.trim().length > 500) return "Keep the question under 500 characters.";
 	if (q.type === "choice" && q.answers.some((a) => !a.trim())) return "Fill in all four answers.";
+	if (q.type === "choice" && q.answers.some((a) => a.trim().length > 200)) return "Keep each answer under 200 characters.";
+	return null;
+}
+
+/** Plain words for what is wrong with a quiz title, or null. */
+function titleProblem(title: string): string | null {
+	if (!title.trim()) return "Give the quiz a title.";
+	if (title.trim().length > 200) return "Keep the quiz title under 200 characters.";
 	return null;
 }
 
@@ -20,21 +30,26 @@ const lessonMarker = (lesson: string) => `state:lesson-quiz:${lesson}`;
 
 /**
  * Hold `lesson` for `quizId`, or refuse naming the quiz that has it. Two saves at once both try a
- * create-only compare-and-set; one wins. A marker whose quiz no longer exists is taken over.
- * ponytail: a marker can outlive its claim only if the quiz write and the release both fail; the
- * quiz it names is then edited (or deleted) to free the lesson.
+ * create-only compare-and-set; one wins. The marker only counts while the quiz it names still sits on
+ * the lesson: a marker whose quiz was deleted, or moved to another lesson while freeing this one
+ * failed, is taken over. The holder is read raw, so a stored quiz that fails the schema but still
+ * carries this lessonKey keeps the lesson (no second quiz on it). Four calls at most.
  */
 async function claimLesson(ctx: Ctx, lesson: string, quizId: string): Promise<{ revision: string } | Fail> {
 	const key = lessonMarker(lesson);
 	const first = await ctx.kv.compareAndSet(key, null, quizId);
 	if (first.applied) return { revision: first.revision };
 	const current = await ctx.kv.getVersioned<string>(key);
-	if (!current || current.value === quizId) {
-		const again = current ? { applied: true as const, revision: current.revision } : await ctx.kv.compareAndSet(key, null, quizId);
+	if (current?.value === quizId) return { revision: current.revision };
+	if (!current) {
+		const again = await ctx.kv.compareAndSet(key, null, quizId);
 		if (again.applied) return { revision: again.revision };
 	} else {
-		const holder = await getQuiz(ctx, current.value);
-		if (holder) return fail("LESSON_HAS_QUIZ", `That lesson already has the quiz "${holder.title}". Each lesson has one quiz: choose another lesson, or move that quiz first.`);
+		const holder = asRecord(await ctx.storage.quizzes!.get(current.value));
+		if (holder.lessonKey === lesson) {
+			const title = asString(holder.title) || "that needs fixing";
+			return fail("LESSON_HAS_QUIZ", `That lesson already has the quiz "${title}". Each lesson has one quiz: choose another lesson, or move that quiz first.`);
+		}
 		const take = await ctx.kv.compareAndSet(key, current.revision, quizId);
 		if (take.applied) return { revision: take.revision };
 	}
@@ -74,12 +89,14 @@ export async function writeQuiz(
 	const changed = change(row);
 	if ("ok" in changed) return changed;
 	if (changed.questions.length > MAX_QUESTIONS) return TOO_MANY;
+	const badTitle = titleProblem(changed.title);
+	if (badTitle) return fail("INVALID_QUIZ", badTitle);
 	for (const q of changed.questions) {
 		const problem = questionProblem(q);
 		if (problem) return fail("INVALID_QUESTION", problem);
 	}
 	const next = parse(quizSchema, { ...changed, updatedAt: nowIso(), rev: newRev() });
-	if (!next) return fail("INVALID_QUIZ", "Give the quiz a title under 200 characters, and keep each question and answer short.");
+	if (!next) return fail("INVALID_QUIZ", "Something in this quiz is not valid. Reload it and try again.");
 	const before = row?.lessonKey ?? "";
 	let claim: { revision: string } | null = null;
 	if (next.lessonKey && next.lessonKey !== before) {
@@ -89,9 +106,19 @@ export async function writeQuiz(
 		if ("ok" in held) return held;
 		claim = held;
 	}
-	const write = await ctx.storage.quizzes!.compareAndSet(key, current?.revision ?? null, next);
-	if (!write.applied) {
+	// A refused or failed write gives the claimed lesson back, so no marker outlives its claim.
+	const unclaim = async () => {
 		if (claim) await ctx.kv.compareAndDelete(lessonMarker(next.lessonKey), claim.revision).catch(() => undefined);
+	};
+	let applied = false;
+	try {
+		applied = (await ctx.storage.quizzes!.compareAndSet(key, current?.revision ?? null, next)).applied;
+	} catch (error) {
+		await unclaim();
+		throw error;
+	}
+	if (!applied) {
+		await unclaim();
 		return STALE("quiz");
 	}
 	if (before && before !== next.lessonKey) await releaseLesson(ctx, before, key);

@@ -51,6 +51,12 @@ function pager(action: string, view: View, next: string | undefined, extra: Reco
 }
 
 const failToast = (result: Fail) => bad(result.error.message);
+/** "14 Nov 2026" (UTC: a plugin cannot read the site time zone). */
+const dayOf = (iso: string) => {
+	const date = new Date(iso);
+	return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+};
+const lessonsText = (n: number) => (n === 1 ? "1 lesson" : `${n} lessons`);
 
 /* ---------------- Course outline ---------------- */
 
@@ -58,10 +64,10 @@ async function renderCourses(ctx: Ctx, view: View, toast?: Toast): Promise<Block
 	const page = await ctx.content!.list("lms_courses", { orderBy: { title: "asc" }, limit: COURSE_PAGE, ...(view.at ? { cursor: view.at } : {}) });
 	const outlines = page.items.length ? await ctx.storage.outlines!.getMany(page.items.map((item) => item.id)) : new Map();
 	const rows = page.items.map((item) => ({
-		course: titleOf(item, "Untitled course"),
+		// The lesson count rides in the course cell: four columns clip at 390.
+		course: `${titleOf(item, "Untitled course")} (${lessonsText(((outlines.get(item.id) as { lessons?: unknown[] } | undefined)?.lessons ?? []).length)})`,
 		status: statusBadge(item.status),
-		lessons: ((outlines.get(item.id) as { lessons?: unknown[] } | undefined)?.lessons ?? []).length,
-		open: button("Open", "outline_open", { c: item.id }),
+		open: button("Edit outline", "outline_open", { c: item.id }),
 	}));
 	return {
 		blocks: [
@@ -75,8 +81,7 @@ async function renderCourses(ctx: Ctx, view: View, toast?: Toast): Promise<Block
 						columns: [
 							{ key: "course", label: "Course" },
 							{ key: "status", label: "Status", format: "badge" },
-							{ key: "lessons", label: "Lessons", format: "number" },
-							{ key: "open", label: "Outline", format: "element" },
+							{ key: "open", label: "Actions", format: "element" },
 						],
 						rows,
 					},
@@ -119,7 +124,7 @@ async function renderOutline(ctx: Ctx, course: string, pageNo: number, toast?: T
 	return {
 		blocks: [
 			header(`Outline: ${title}`),
-			note(lessons.length ? `${lessons.length} lessons. Visitors see the published ones in this order.` : "Add the lessons of this course, then put them in order."),
+			note(lessons.length ? `${lessonsText(lessons.length)}. Visitors see the published ones in this order.` : "Add the lessons of this course, then put them in order."),
 			...(hidden ? [{ type: "banner", variant: "alert", title: `${hidden} lesson${hidden > 1 ? "s" : ""} on this page ${hidden > 1 ? "are" : "is"} not published`, description: hidden > 1 ? "Visitors do not see them. Publish them under Lessons, or remove them here." : "Visitors do not see it. Publish it under Lessons, or remove it here." }] : []),
 			rows.length === 0
 				? { type: "empty", title: "No lessons in this outline yet", description: "Add lessons by title. You can reorder them after.", actions: [button("Add lessons", "outline_add", { c: course }, "primary")] }
@@ -130,7 +135,7 @@ async function renderOutline(ctx: Ctx, course: string, pageNo: number, toast?: T
 							{ key: "position", label: "#", format: "number" },
 							{ key: "lesson", label: "Lesson" },
 							{ key: "status", label: "Status", format: "badge" },
-							{ key: "change", label: "Change", format: "element" },
+							{ key: "change", label: "Actions", format: "element" },
 						],
 						rows,
 					},
@@ -152,15 +157,14 @@ async function renderAddLessons(ctx: Ctx, course: string, view: View, toast?: To
 	const inOutline = new Set((outline?.lessons ?? []).map((lesson) => lesson.id));
 	const rev = outline?.rev ?? "";
 	const rows = page.items.map((item) => ({
-		lesson: titleOf(item, "Untitled lesson"),
+		lesson: `${titleOf(item, "Untitled lesson")}${inOutline.has(item.id) ? " (in this course)" : ""}`,
 		status: statusBadge(item.status),
-		here: inOutline.has(item.id) ? "In this course" : "",
 		add: inOutline.has(item.id) ? null : button("Add", "outline_put", { c: course, l: item.id, r: rev, at: view.at, back: view.back }),
 	}));
 	return {
 		blocks: [
 			header(`Add lessons to ${title}`),
-			note(`${inOutline.size} lessons in this course so far. Each one you add goes to the end; reorder them on the outline.`),
+			note(`${lessonsText(inOutline.size)} in this course so far. Each one you add goes to the end; reorder them on the outline.`),
 			rows.length === 0
 				? { type: "empty", title: "No lessons yet", description: "Write lessons under Lessons first. They join a course here." }
 				: {
@@ -169,8 +173,7 @@ async function renderAddLessons(ctx: Ctx, course: string, view: View, toast?: To
 						columns: [
 							{ key: "lesson", label: "Lesson" },
 							{ key: "status", label: "Status", format: "badge" },
-							{ key: "here", label: "Course" },
-							{ key: "add", label: "Add", format: "element" },
+							{ key: "add", label: "Actions", format: "element" },
 						],
 						rows,
 					},
@@ -216,10 +219,9 @@ const answerText = (q: Question) => (q.type === "choice" ? q.answers[q.correct] 
 async function renderQuizzes(ctx: Ctx, view: View, toast?: Toast): Promise<BlockResponse> {
 	const page = await listQuizzes(ctx, view.at);
 	const rows = page.items.map((quiz) => ({
-		quiz: quiz.title,
-		questions: quiz.questions,
+		quiz: `${quiz.title} (${quiz.questions === 1 ? "1 question" : `${quiz.questions} questions`})`,
 		updated: quiz.updatedAt,
-		open: button("Open", "quiz_open", { q: quiz.id }),
+		open: button("Edit quiz", "quiz_open", { q: quiz.id }),
 	}));
 	return {
 		blocks: [
@@ -237,9 +239,8 @@ async function renderQuizzes(ctx: Ctx, view: View, toast?: Toast): Promise<Block
 						page_action_id: "quizzes_page",
 						columns: [
 							{ key: "quiz", label: "Quiz" },
-							{ key: "questions", label: "Questions", format: "number" },
 							{ key: "updated", label: "Updated", format: "relative_time" },
-							{ key: "open", label: "Quiz", format: "element" },
+							{ key: "open", label: "Actions", format: "element" },
 						],
 						rows,
 					},
@@ -322,7 +323,7 @@ async function renderQuiz(ctx: Ctx, id: string, quiz: Quiz | null, editing: numb
 							{ key: "position", label: "#", format: "number" },
 							{ key: "question", label: "Question" },
 							{ key: "answer", label: "Correct answer" },
-							{ key: "change", label: "Change", format: "element" },
+							{ key: "change", label: "Actions", format: "element" },
 						],
 						rows,
 					},
@@ -354,10 +355,9 @@ async function renderQuizLessons(ctx: Ctx, id: string, view: View, toast?: Toast
 	const rows = page.items.map((item) => {
 		const has = holder.get(item.id);
 		return {
-			lesson: titleOf(item, "Untitled lesson"),
+			lesson: `${titleOf(item, "Untitled lesson")}${has ? ` (quiz: ${has.id === id ? "this one" : has.title || "another quiz"})` : ""}`,
 			status: statusBadge(item.status),
-			quiz: has ? (has.id === id ? "This quiz" : has.title || "Another quiz") : "",
-			pick: has ? null : button("Use this lesson", "quiz_lesson_set", { q: id, l: item.id, r: row.rev }),
+			pick: has ? null : button("Use lesson", "quiz_lesson_set", { q: id, l: item.id, r: row.rev }),
 		};
 	});
 	return {
@@ -372,8 +372,7 @@ async function renderQuizLessons(ctx: Ctx, id: string, view: View, toast?: Toast
 						columns: [
 							{ key: "lesson", label: "Lesson" },
 							{ key: "status", label: "Status", format: "badge" },
-							{ key: "quiz", label: "Quiz" },
-							{ key: "pick", label: "Choose", format: "element" },
+							{ key: "pick", label: "Actions", format: "element" },
 						],
 						rows,
 					},
@@ -440,9 +439,10 @@ async function renderEnrollments(ctx: Ctx, view: View, toast?: Toast): Promise<B
 	const listed = await listEnrollments(ctx, { cursor: view.at, find: view.find });
 	const rows = listed.items.map((e) => ({
 		member: e.memberName,
-		course: e.courseTitle || "Untitled course",
-		progress: e.completedAt ? "Finished" : `${e.done.length} of ${e.lessons} lessons`,
-		erase: { type: "menu", action_id: "member_menu", label: "Member", items: [{ label: "Erase their data", value: JSON.stringify({ m: e.memberId, n: e.memberName }) }] },
+		// Progress rides in the course cell (four columns clip at 390). Same count as the member's own
+		// screens (countProgress, on the outline here); a member who finished once stays finished.
+		course: `${e.courseTitle || "Untitled course"}: ${e.completedAt || e.progress.finished ? "finished" : `${e.progress.done} of ${e.progress.total} lessons`}`,
+		erase: manageMenu(e.memberId, e.memberName, "enrollments"),
 	}));
 	return {
 		blocks: [
@@ -457,9 +457,8 @@ async function renderEnrollments(ctx: Ctx, view: View, toast?: Toast): Promise<B
 						page_action_id: "enrollments_page",
 						columns: [
 							{ key: "member", label: "Member" },
-							{ key: "course", label: "Course" },
-							{ key: "progress", label: "Progress" },
-							{ key: "erase", label: "Member", format: "element" },
+							{ key: "course", label: "Course and progress" },
+							{ key: "erase", label: "Actions", format: "element" },
 						],
 						rows,
 					},
@@ -471,7 +470,7 @@ async function renderEnrollments(ctx: Ctx, view: View, toast?: Toast): Promise<B
 
 async function renderResults(ctx: Ctx, view: View, toast?: Toast): Promise<BlockResponse> {
 	const listed = await listResults(ctx, { cursor: view.at, find: view.find });
-	const rows = listed.items.map((a) => ({ member: a.memberName, quiz: a.quizTitle, score: `${a.score} of ${a.total}`, submitted: a.submittedAt }));
+	const rows = listed.items.map((a) => ({ member: a.memberName, quiz: `${a.quizTitle}: ${a.score} of ${a.total}, ${dayOf(a.submittedAt)}`, erase: manageMenu(a.memberId, a.memberName, "results") }));
 	return {
 		blocks: [
 			header("Quiz results"),
@@ -485,9 +484,8 @@ async function renderResults(ctx: Ctx, view: View, toast?: Toast): Promise<Block
 						page_action_id: "results_page",
 						columns: [
 							{ key: "member", label: "Member" },
-							{ key: "quiz", label: "Quiz" },
-							{ key: "score", label: "Score" },
-							{ key: "submitted", label: "Submitted", format: "relative_time" },
+							{ key: "quiz", label: "Quiz and score" },
+							{ key: "erase", label: "Actions", format: "element" },
 						],
 						rows,
 					},
@@ -497,14 +495,26 @@ async function renderResults(ctx: Ctx, view: View, toast?: Toast): Promise<Block
 	};
 }
 
+/**
+ * The per-row menu on Enrollments and Quiz results, so a member with only quiz results (no
+ * enrollment) can be erased too. `from` is the list the erase pages go back to.
+ */
+function manageMenu(memberId: string, name: string, from: "enrollments" | "results"): Block {
+	return { type: "menu", action_id: "member_menu", label: "Manage", items: [{ label: "Erase their data", value: JSON.stringify({ m: memberId, n: name, f: from }) }] };
+}
+
+const eraseFrom = (value: Record<string, unknown>) =>
+	asString(value.f) === "results" ? { title: "Quiz results", action: "results_page", back: "Show quiz results" } : { title: "Enrollments", action: "enrollments_page", back: "Show enrollments" };
+
 /** Ask once, naming the member, before erasing. No reads: the page names them from the row. */
 function askErase(value: Record<string, unknown>): BlockResponse {
 	const name = asString(value.n) || "this member";
+	const from = eraseFrom(value);
 	return {
 		blocks: [
-			header("Enrollments"),
+			header(from.title),
 			{ type: "banner", variant: "alert", title: `Erase ${name}'s Learnomy data?`, description: "Every enrollment and quiz result of this member is deleted. This cannot be undone. Their site account stays." },
-			actionsRow(button("Erase their data", "member_erase", { m: asString(value.m), n: name }, "danger"), button("Keep it", "enrollments_page", {})),
+			actionsRow(button("Erase their data", "member_erase", { m: asString(value.m), n: name, f: asString(value.f) }, "danger"), button("Keep it", from.action, {})),
 		],
 	};
 }
@@ -514,15 +524,16 @@ async function eraseOne(ctx: Ctx, value: Record<string, unknown>): Promise<Block
 	const member = asString(value.m);
 	const name = asString(value.n) || "this member";
 	const result = await eraseRows(ctx, member);
-	const back = button("Show enrollments", "enrollments_page", {}, "primary");
+	const from = eraseFrom(value);
+	const back = button(from.back, from.action, {}, "primary");
 	if (!result.done) {
 		return {
-			blocks: [header("Enrollments"), { type: "banner", variant: "alert", title: `Part of ${name}'s data is erased`, description: "There was more than one call could remove. Press Erase again to finish." }, actionsRow(button("Erase again", "member_erase", value, "danger"), back)],
+			blocks: [header(from.title), { type: "banner", variant: "alert", title: `Part of ${name}'s data is erased`, description: "There was more than one call could remove. Press Erase again to finish." }, actionsRow(button("Erase again", "member_erase", value, "danger"), back)],
 			toast: { message: `Erased part of ${name}'s data. Press Erase again to finish.`, type: "info" },
 		};
 	}
 	return {
-		blocks: [header("Enrollments"), { type: "banner", variant: "default", title: `${name}'s Learnomy data is erased`, description: "Their enrollments and quiz results are gone. Their site account stays." }, actionsRow(back)],
+		blocks: [header(from.title), { type: "banner", variant: "default", title: `${name}'s Learnomy data is erased`, description: "Their enrollments and quiz results are gone. Their site account stays." }, actionsRow(back)],
 		toast: ok(`Erased ${name}'s enrollments and quiz results.`),
 	};
 }
@@ -547,7 +558,9 @@ async function renderWidget(ctx: Ctx): Promise<BlockResponse> {
 				],
 			},
 			actionsRow(
-				{ type: "link", label: "New course", target: { kind: "external", url: new URL("/_emdash/admin/content/lms_courses/new", ctx.site.url).href }, appearance: "primary" },
+				// A content link to id "new" resolves to /_emdash/admin/content/lms_courses/new, relative, so the
+				// card works before Settings > Site URL is set (emdash admin plugin-links.ts resolvePluginLinkTarget).
+				{ type: "link", label: "New course", target: { kind: "content", collection: "lms_courses", id: "new" }, appearance: "primary" },
 				{ type: "link", label: "Course outline", target: { kind: "plugin-page", path: "/outline" } },
 			),
 		],
