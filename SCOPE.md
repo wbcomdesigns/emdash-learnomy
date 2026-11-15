@@ -1,6 +1,6 @@
 # Learnomy for EmDash: scope
 
-**Status: LOCKED on 2026-11-15; amended the same day by the owner (Course outline page, issue #1; quiz picks its lesson, issue #3; presentation, agents and dashboard sections).** Decided with the owner on 2026-11-14 and 2026-11-15 after an audit of the 2026-10-15 draft against the EmDash 1.5 docs and source, and three proving spikes on a fresh EmDash 1.5.0 lab (`~/code/emdash-lab-learnomy`, report `~/work-artifacts/scratch/learnomy-spikes-report.md` and `learnomy-signup-spike.md`). An agent does not add options, change decisions, or move items in or out. If an item cannot be built as written, stop, say why on its issue, and wait for the owner.
+**Status: LOCKED on 2026-11-15; amended the same day by the owner (Course outline page, issue #1; quiz picks its lesson, issue #3; presentation, agents and dashboard sections).** Decided with the owner on 2026-11-14 and 2026-11-15 after an audit of the 2026-10-15 draft against the EmDash 1.5 docs and source, and three proving spikes on a fresh EmDash 1.5.0 lab. An agent does not add options, change decisions, or move items in or out. If an item cannot be built as written, stop, say why on its issue, and wait for the owner.
 
 Every recommendation below is tagged **P** (proven in one of our plugins or a spike), **D** (EmDash docs or source say it works, not yet built by us) or **step 1** (proved in plan step 1 before anything depends on it).
 

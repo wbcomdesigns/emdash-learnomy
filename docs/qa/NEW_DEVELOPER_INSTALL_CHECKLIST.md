@@ -13,7 +13,7 @@ Started 2026-10-18, after a report that on a fresh EmDash setup "all the plugins
 3. **Note each place you stopped to think.** Did you guess a file name, look up a path, or read the source? Each one is a finding.
 4. **Never fix the site to keep going without writing it down.** Write the finding, then apply the smallest fix and carry on, so one gap does not hide the next.
 5. **One GitHub issue per finding** on that plugin's repo, labelled `install-path`, under the next version milestone. A gap shared by every plugin goes on `emdash-plugin-starter`.
-6. **Screenshots** go to `~/work-artifacts/screenshots/YYYY-MM/`. Open each one and judge it as the owner or visitor would.
+6. **Screenshots** stay outside the repo. Open each one and judge it as the owner or visitor would.
 
 ## Starting points
 
