@@ -3,6 +3,7 @@ import type { RouteEntry, SandboxedPlugin } from "emdash/plugin";
 import { handleAdmin } from "./admin";
 import { catalog, completeLesson, courseGraph, enroll, eraseMember, lessonCourses, myCourses, outline, progress, quiz, submitQuiz } from "./learn";
 import { handlePanel } from "./panel";
+import { DAILY, daily, setUp } from "./tasks";
 import { mcpTools, toolRoutes } from "./tools";
 
 // Lowest signed-in role (subscriber) has content:read. A member id in the request is never trusted:
@@ -16,6 +17,13 @@ const tools: Record<string, RouteEntry> = Object.fromEntries(
 
 const plugin: SandboxedPlugin = {
 	hooks: {
+		"plugin:install": { handler: async (_event, ctx) => setUp(ctx) },
+		"plugin:activate": { handler: async (_event, ctx) => setUp(ctx) },
+		cron: {
+			handler: async (event, ctx) => {
+				if (event.name === DAILY) await daily(ctx);
+			},
+		},
 		// schema.org Course with its published lessons in hasPart, on a course page that passes its
 		// content to the layout (every create-emdash template does). Same calls as the outline route.
 		"page:metadata": { handler: async (event, ctx) => courseGraph(event.page, ctx) },

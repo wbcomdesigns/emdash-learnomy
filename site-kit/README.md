@@ -18,12 +18,14 @@ kit="$(mktemp -d)/emdash-learnomy" &&
   cp "$kit/site-kit/lib/learnomy.ts" "$kit/site-kit/lib/learnomy-strings.ts" src/lib/ &&
   cp "$kit/site-kit/styles/learnomy.css" src/styles/ &&
   { [ -e src/layouts/LearnomyLayout.astro ] || cp "$kit/site-kit/layouts/LearnomyLayout.astro" src/layouts/; } &&
-  { [ -e src/lib/wbcom-kit.ts ] || cp "$kit/site-kit/lib/wbcom-kit.ts" src/lib/; } &&
+  shared() { sed -n '1s/.*wbcom-shared: \([0-9]*\).*/\1/p' "$1" 2>/dev/null || true; } &&
+  { [ "$(shared src/lib/wbcom-kit.ts)" -ge "$(shared "$kit/site-kit/lib/wbcom-kit.ts")" ] 2>/dev/null || cp "$kit/site-kit/lib/wbcom-kit.ts" src/lib/; } &&
   npx emdash seed "$kit/site-kit/seed/learnomy-seed.json" --no-content
 ```
 
-- `src/lib/wbcom-kit.ts` is shared by every Wbcom plugin kit. If your site already has one, keep
-  whichever copy has the higher number on its first line (`wbcom-shared: N`).
+- `src/lib/wbcom-kit.ts` is shared by every Wbcom plugin kit. The command copies it only when your
+  site has no copy or one with a lower number on its first line (`wbcom-shared: N`), so another
+  plugin's newer copy stays.
 - `src/layouts/LearnomyLayout.astro` is yours once copied: it hands every Learnomy page to your
   site's `src/layouts/Base.astro`. If your layout has another name or other props, change that one
   file. Copying the kit again never replaces it.

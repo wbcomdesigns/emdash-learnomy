@@ -74,6 +74,10 @@ const MEASURED: Record<string, number> = {
 	"route progress": 1,
 	"route myCourses (50 enrollments)": 2,
 	"hook page:metadata (200 lessons, 262 published on the site)": 5,
+	"hook plugin:install": 3, // 2 measured: the test host already ran install at start; 3 on a site with no marker
+	"hook plugin:activate (marker set)": 2,
+	"hook cron daily (marker current)": 1,
+	"hook cron daily (older marker)": 2,
 };
 
 const seen = new Map<string, number>();
@@ -213,6 +217,15 @@ describe("bridge calls per entry point, worst case", () => {
 		}
 		expect(done).toBe(true);
 	}, 120_000);
+
+	it("install, activate and the daily task", async () => {
+		const hook = (name: string, event: unknown) => s.rt.transport.invokeHook(name, event);
+		await measure("hook plugin:install", () => hook("plugin:install", {}));
+		await measure("hook plugin:activate (marker set)", () => hook("plugin:activate", {}));
+		await measure("hook cron daily (marker current)", () => hook("cron", { name: "daily" }));
+		await s.rt.fixtures.plugin.kv("state:tasks", "0.0.1");
+		await measure("hook cron daily (older marker)", () => hook("cron", { name: "daily" }));
+	});
 
 	it("MCP tool routes", async () => {
 		const got = await measure("tool getOutline", () => tool("getOutline", { course }));
