@@ -25,7 +25,8 @@ const CAP = 20;
 // 0.2.0) + 3 + 12 = 19 at most. completeLesson: 1 + 1 (the lesson's quiz) + 1 (the member's attempt
 // when that quiz has a pass mark) + 13 (status of the lessons left, none once all are done) + 2 + 2
 // (one retry) = 20 at most. progress: 2 + 3 (quizzes on a 200-lesson outline, 80 lessons a query) + 1
-// (attempts) = 6 at most. memberQuiz: 4 (with the kept retake record). submitQuiz: 5 (quiz, lesson, attempt getVersioned, the kept retake record, compareAndSet).
+// (attempts) = 6 at most. memberQuiz: 4 (with the kept retake record). submitQuiz: 5 (quiz, lesson, attempt getVersioned, the kept retake record, compareAndSet); with
+// a retake limit the kept record's compare-and-set adds 1, 3 on a conflict: 8 at most.
 const MEASURED: Record<string, number> = {
 	"route outline (200 lessons, 262 published on the site)": 5,
 	"route quiz (guest, lesson in no course, 600 outlines)": 7,
@@ -42,6 +43,7 @@ const MEASURED: Record<string, number> = {
 	"route completeLesson (already done)": 4,
 	"route completeLesson (not in outline)": 2,
 	"route submitQuiz (20 questions)": 5,
+	"route submitQuiz (retake limit, keeps the count)": 6,
 	"route eraseMember (500 + 500 rows, each round)": 18,
 	"admin page_load /outline": 3,
 	"admin page_load /outline (opened from the lesson panel)": 14,
@@ -169,6 +171,8 @@ describe("bridge calls per entry point, worst case", () => {
 		await s.rt.fixtures.plugin.storage("outlines", shortCourse, { courseKey: shortCourse, courseTitle: "Course 00", lessons: [...loose.slice(27, 30).map((id) => ({ id, title: "L" })), { id: draft, title: "D" }], updatedAt: "2026-11-15T00:00:00.000Z", rev: "r" });
 		expect((await measure("route outline (3 lessons and a draft, 262 published on the site)", () => s.get("outline", { course: shortCourse }))).lessons).toHaveLength(3);
 		await measure("route submitQuiz (20 questions)", () => s.post("submitQuiz", { quiz: "q20", answers: Array(20).fill(2) }, ana));
+		await quizOnLesson(s, "lim", "published", { ...QUIZ, retake: { type: "max", attempts: 5 } });
+		expect((await measure("route submitQuiz (retake limit, keeps the count)", () => s.post("submitQuiz", { quiz: "lim", answers: [2, 0] }, ana))).attemptsLeft).toBe(4);
 		const ids = [course, ...Array.from({ length: 23 }, (_, i) => `other-${i}`)].join(",");
 		expect((await measure("route catalog (24 courses)", () => s.get("catalog", { courses: ids }))).counts[course]).toBe(200);
 		const holders = await measure("route lessonCourses (600 outlines)", () => s.get("lessonCourses", { lesson: lessons[0]!.id }));
