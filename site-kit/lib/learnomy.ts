@@ -19,6 +19,20 @@ export const courseHref = (slug: string) => `/courses/${encodeURIComponent(slug)
 export const lessonHref = (lessonSlug: string, courseSlug?: string) =>
 	`/lessons/${encodeURIComponent(lessonSlug)}${courseSlug ? `?course=${encodeURIComponent(courseSlug)}` : ""}`;
 
+/** Catalog pages Previous can step back through; older pages fall back to the first page. */
+const CATALOG_BACK = 20;
+
+/**
+ * Previous and Next for the catalog. EmDash cursors only go forward, so the URL carries the cursors
+ * of the pages before this one (`back`, comma-separated: cursors are base64) and Previous pops one.
+ */
+export function catalogPages(cursor: string | undefined, back: string[], nextCursor: string | undefined) {
+	return {
+		previous: cursor ? { cursor: back.at(-1), back: back.slice(0, -1).join(",") || undefined } : undefined,
+		next: nextCursor ? { cursor: nextCursor, back: (cursor ? [...back, cursor].slice(-CATALOG_BACK) : []).join(",") || undefined } : undefined,
+	};
+}
+
 /** The first lesson not done yet, in outline order, or the first lesson when all are done. */
 export function nextLesson(lessons: Lesson[], done: string[]): Lesson | undefined {
 	return lessons.find((lesson) => !done.includes(lesson.id)) ?? lessons[0];

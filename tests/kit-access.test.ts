@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isOpenCourse } from "../site-kit/lib/learnomy";
+import { catalogPages, isOpenCourse } from "../site-kit/lib/learnomy";
 import catalog from "../site-kit/pages/courses/index.astro?raw";
 import course from "../site-kit/pages/courses/[slug].astro?raw";
 import lesson from "../site-kit/pages/lessons/[slug].astro?raw";
@@ -22,5 +22,21 @@ describe("course access in the kit", () => {
 			expect(source, page).toContain("isOpenCourse(");
 			expect(source, page).not.toMatch(/\.access\s*[!=]==/);
 		}
+	});
+});
+
+describe("catalog pages", () => {
+	it("Previous goes back one page, not to the first (issue #19)", () => {
+		const p1 = catalogPages(undefined, [], "c2");
+		expect(p1.previous).toBeUndefined();
+		expect(p1.next).toEqual({ cursor: "c2", back: undefined });
+		const p2 = catalogPages("c2", [], "c3");
+		expect(p2.previous).toEqual({ cursor: undefined, back: undefined });
+		expect(p2.next).toEqual({ cursor: "c3", back: "c2" });
+		const p3 = catalogPages("c3", ["c2"], undefined);
+		expect(p3.previous).toEqual({ cursor: "c2", back: undefined });
+		expect(p3.next).toBeUndefined();
+		expect(catalogPages("c4", ["c2", "c3"], "c5").previous).toEqual({ cursor: "c3", back: "c2" });
+		expect(catalog).toContain("catalogPages(");
 	});
 });

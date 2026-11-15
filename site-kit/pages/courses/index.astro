@@ -3,7 +3,7 @@
 import { getEmDashCollection, getTaxonomyTermsWithCacheHint, getTermsForEntries } from "emdash";
 import { Image } from "emdash/ui";
 import Layout from "../../layouts/LearnomyLayout.astro";
-import { courseHref, isOpenCourse, PLUGIN } from "../../lib/learnomy";
+import { catalogPages, courseHref, isOpenCourse, PLUGIN } from "../../lib/learnomy";
 import { S } from "../../lib/learnomy-strings";
 import { callPluginRoute } from "../../lib/wbcom-kit";
 import "../../styles/learnomy.css";
@@ -11,6 +11,7 @@ import "../../styles/learnomy.css";
 const PAGE = 12;
 const category = Astro.url.searchParams.get("category") || "";
 const cursor = Astro.url.searchParams.get("cursor") || undefined;
+const back = (Astro.url.searchParams.get("back") || "").split(",").filter(Boolean);
 
 const terms = await getTaxonomyTermsWithCacheHint("lms_course_category", { includeCounts: false }).catch(() => null);
 const term = category ? terms?.data.find((item) => item.slug === category) : null;
@@ -38,6 +39,7 @@ const pageUrl = (params: Record<string, string | undefined>) => {
 	for (const [key, value] of Object.entries(params)) if (value) url.searchParams.set(key, value);
 	return `${url.pathname}${url.search}`;
 };
+const pages = catalogPages(cursor, back, result.nextCursor);
 const lock = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>';
 const title = term ? `${term.label} ${S.catalog.title.toLowerCase()}` : S.catalog.title;
 ---
@@ -128,11 +130,11 @@ const title = term ? `${term.label} ${S.catalog.title.toLowerCase()}` : S.catalo
 		}
 
 		{
-			(cursor || result.nextCursor) && (
+			(pages.previous || pages.next) && (
 				<nav class="learnomy-pager-links" aria-label={S.catalog.pagination} data-learnomy-catalog-pages>
-					{cursor ? <a class="learnomy-btn learnomy-btn--quiet" href={pageUrl({ category: term?.slug })}>{S.catalog.previous}</a> : <span />}
-					{result.nextCursor && (
-						<a class="learnomy-btn learnomy-btn--quiet" href={pageUrl({ category: term?.slug, cursor: result.nextCursor })}>
+					{pages.previous ? <a class="learnomy-btn learnomy-btn--quiet" href={pageUrl({ category: term?.slug, ...pages.previous })}>{S.catalog.previous}</a> : <span />}
+					{pages.next && (
+						<a class="learnomy-btn learnomy-btn--quiet" href={pageUrl({ category: term?.slug, ...pages.next })}>
 							{S.catalog.next}
 						</a>
 					)}
