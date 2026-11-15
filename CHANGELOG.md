@@ -12,7 +12,7 @@ New permissions: Read your content, to list courses and lessons by title and sho
 - New      - A Course outline page to add a course's lessons by title, set their order and see which are not published.
 - New      - A Quizzes page to write one quiz per lesson, multiple choice or true or false, up to 20 questions.
 - New      - The lesson editor panel shows the lesson's courses and quiz, with a link to each.
-- New      - Free enrollment, Mark complete and progress for signed-in members, with a finished state when every lesson is done.
+- New      - Free enrollment, Mark complete and progress for signed-in members, with a finished state when every published lesson is done.
 - New      - Quizzes are scored on the server and never send the correct answers; each member keeps one result per quiz.
 - New      - Enrollments and Quiz results lists with member names, find by name or email, 15 rows a page.
 - New      - Erase one member's enrollments and quiz results from the admin, or their own from Your courses.

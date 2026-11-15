@@ -17,7 +17,7 @@ A lesson has no course field. Which lessons belong to a course, and in what orde
 
 ## Course outline
 
-**Learnomy**, **Course outline**. Pick a course from the list of your courses. The outline shows its lessons in order, ten to a page.
+**Plugins**, **Course outline**. Pick a course from the list of your courses. The outline shows its lessons in order, ten to a page.
 
 ![The Course outline page with one lesson not published](../images/admin-course-outline.webp)
 
@@ -30,7 +30,7 @@ A course holds up to 200 lessons. A lesson can be in more than one course.
 
 ## Quizzes
 
-**Learnomy**, **Quizzes**. Each lesson can have one quiz.
+**Plugins**, **Quizzes**. Each lesson can have one quiz.
 
 ![A quiz on its lesson, with its questions](../images/admin-quiz.webp)
 
@@ -54,7 +54,7 @@ When you edit a lesson, the **Learnomy** panel beside the editor shows which cou
 
 ## Enrollments and Quiz results
 
-**Learnomy**, **Enrollments** lists who enrolled in which course and how far they are. **Quiz results** lists each member's latest score on each quiz. Both show the newest first, 15 rows a page, with **Previous page** and **Next page**.
+**Enrollments** lists who enrolled in which course and how far they are: lessons done of the lessons in the course outline, or **Finished**. **Quiz results** lists each member's latest score on each quiz. Both show the newest first, 15 rows a page, with **Previous page** and **Next page**.
 
 ![The Enrollments list](../images/admin-enrollments.webp)
 
@@ -62,7 +62,7 @@ To find one member, type part of their name or their email in **Find a member by
 
 ## Erase one member's data
 
-On Enrollments or Quiz results, open the member's row menu and choose **Erase their data**. The page asks once, with their name. Erasing deletes every enrollment and quiz result of that member. It cannot be undone. Their site account stays.
+On Enrollments or Quiz results, open **Manage** on the member's row and choose **Erase their data**. A member who took a quiz without enrolling is on Quiz results only, so erase them from there. The page asks once, with their name. Erasing deletes every enrollment and quiz result of that member. It cannot be undone. Their site account stays.
 
 A member with a very long history may need a second press: the page says "Press Erase again to finish".
 

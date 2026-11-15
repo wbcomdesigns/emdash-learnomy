@@ -39,8 +39,9 @@ Your rule always wins, whatever order the stylesheets load in.
 | `--learnomy-shadow` | Card shadow | `--shadow-card` |
 | `--learnomy-shadow-hover` | Card shadow on hover | `--shadow-card-hover` |
 | `--learnomy-gap` | Space between cards and sections | `--spacing-md` |
-| `--learnomy-max` | Widest the kit grows (72rem) | none |
-| `--learnomy-gutter` | Space at the page sides | none |
+| `--learnomy-frame` | Width of the kit's page frame, so it lines up with your header | `--frame-width` (100%) |
+| `--learnomy-max` | Widest the kit grows | `--wide-width` (72rem) |
+| `--learnomy-gutter` | Space at the page sides | `--frame-padding` |
 | `--learnomy-measure` | Width of the lesson text column (40rem, about 70 characters) | none |
 | `--learnomy-tap` | Smallest button and answer height (44px) | none |
 | `--learnomy-cover-ratio` | Shape of course covers (16 / 9) | none |

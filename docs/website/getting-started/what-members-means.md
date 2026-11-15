@@ -9,7 +9,8 @@ Every course is either **Open** or **Members**. You choose on the course, in its
 | Guests read the course page and lesson titles | Yes | Yes |
 | Guests read the lesson text | Yes | No, they are asked to sign in |
 | Signed-in members read the lesson text | Yes | Yes |
-| Enroll, mark complete, take quizzes | Signed-in members | Signed-in members |
+| Guests read the lesson's quiz questions | Yes | No, they are asked to sign in |
+| Enroll, mark complete, submit quizzes | Signed-in members | Signed-in members |
 
 ![A Members lesson as a guest sees it: the title and a sign-in prompt](../images/members-lesson-guest.webp)
 
@@ -25,6 +26,10 @@ So:
 ## How the lesson text stays away from guests
 
 For a Members course, the lesson page on your site carries only the title. The text is loaded in the visitor's browser after they sign in. Nothing of it is in the page a guest or a search engine receives, in your sitemap, your feed or your site search. The lesson's excerpt is used for search engines, so never put lesson text in the excerpt.
+
+The lesson's quiz is protected the same way: a guest can read the questions only of a lesson that is in an Open course.
+
+If your site turns on route caching, an Open lesson's page is never cached (it holds the lesson text), and a Members lesson page is cached for a minute at most, so switching a course to Members takes effect at once.
 
 ## A lesson in more than one course
 

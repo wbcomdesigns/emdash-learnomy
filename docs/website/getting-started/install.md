@@ -24,7 +24,7 @@ Stop the dev server and start it again. **Registry** now shows in the dashboard 
 1. In the dashboard, open **Plugins**, then **Registry**. Search **Learnomy**, press Install and accept the two permissions:
    - **Read your content**, so Learnomy can list your courses and lessons by title and show only published ones to visitors.
    - **Read user accounts**, so the Enrollments and Quiz results lists show member names instead of ids.
-2. A **Learnomy** section appears in the menu with **Course outline**, **Quizzes**, **Enrollments** and **Quiz results**, and a Learnomy card appears on the dashboard.
+2. Four pages appear in the dashboard menu under **Plugins**, next to other plugins' pages: **Course outline**, **Quizzes**, **Enrollments** and **Quiz results**. A Learnomy card appears on the dashboard.
 
 ## Step 2: copy the site kit
 
@@ -97,7 +97,7 @@ In **Menus**, add a link to `/courses/`, and one to your account page if your me
 
 1. Under **Lessons**, write two or three lessons and publish them.
 2. Under **Courses**, write a course, set **Who can read the lessons** to `open` or `members`, add a cover image and publish it.
-3. In **Learnomy**, **Course outline**, pick the course and add the lessons in order.
+3. In **Plugins**, **Course outline**, pick the course and add the lessons in order.
 4. Open `/courses/` on your site.
 
 Then [let members join](let-members-join.md) so they can enroll.

@@ -44,8 +44,8 @@ Learnomy's tools show up named after the plugin, for example `learnomy__setOutli
 
 Ask the agent in plain words, for example: "Make a five-lesson Open course called Bread Baking Basics, with a three-question quiz on every lesson." The agent works in this order:
 
-1. **Lessons.** `content_create` on `lms_lessons` for each lesson: `title`, `content` and an `excerpt` for search engines (a summary, never the lesson text). Then `content_publish` each one, or `content_schedule` to release one a week. Keep each lesson's entry id.
-2. **Course.** `content_create` on `lms_courses` with `title`, `excerpt`, `content`, `access` (`open` or `members`) and a cover image, then `content_publish`. Keep the course id.
+1. **Lessons.** `content_create` on `lms_lessons` for each lesson: `title`, `content` and an `excerpt` for search engines (a summary, never the lesson text). Then `content_publish` each one, or `content_schedule` to release one a week. Both need the entry's current `_rev`: call `content_get` first and pass its `_rev`, or EmDash refuses the call. Keep each lesson's entry id.
+2. **Course.** `content_create` on `lms_courses` with `title`, `excerpt`, `content`, `access` (`open` or `members`) and a cover image, then `content_get` for its `_rev` and `content_publish`. Keep the course id.
 3. **Outline.** `getOutline` with the course id returns the current lessons and a version token `rev` (empty for a new course). `setOutline` with `course`, `lessons` (the lesson ids in order) and that `rev`. Up to 15 lessons new to the outline per call; for a longer course, call `getOutline` and `setOutline` again with the next lessons added. A course holds up to 200.
 4. **Quizzes.** For each lesson, `saveQuiz` with `title`, `lesson` (the lesson id) and `questions`. Each question is either
    - `{ "type": "choice", "prompt": "...", "answers": ["A", "B", "C", "D"], "correct": 2 }` (four answers, `correct` 0 to 3), or

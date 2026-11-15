@@ -13,7 +13,7 @@ Learnomy adds free courses to your EmDash site. Write courses and lessons in EmD
 
 ## What Members means
 
-Members keeps out guests, not other members. A guest sees a Members lesson's title and a sign-in prompt; the text never reaches their browser or search engines. Anyone signed in to your site can read every published lesson.
+Members keeps out guests, not other members. A guest sees a Members lesson's title and a sign-in prompt; the text and its quiz never reach their browser or search engines. Anyone signed in to your site can read every published lesson.
 
 ## How members join
 

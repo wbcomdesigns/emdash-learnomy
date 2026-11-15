@@ -24,7 +24,8 @@
 
 ## Known limits
 
-- **1,500 published lessons.** Course pages look through the first 1,500 published lessons of your site to find a course's lessons. On a site with more, a lesson further back is hidden from its course page, never shown by mistake.
+- **1,500 published lessons.** To show only published lessons, each page reads the first 100 published lessons and looks up any others it needs one by one. When a course has more lessons further back than that can cover, it reads up to 1,500 published lessons; on a site with more, a lesson further back is hidden from its course page, never shown by mistake.
+- **Finished stays finished in Enrollments.** A member finishes a course when every published lesson in it is done. If you add a lesson later, their course page shows one more to do, while Enrollments keeps saying Finished.
 - **200 lessons per course.** A course outline holds up to 200 lessons.
 - **20 questions per quiz.** One quiz per lesson, multiple choice with four answers or true or false.
 - **Lessons can sit in several courses.** That is allowed. A lesson opened without a course (from search, for example) takes the access of the first course it finds, Open courses first.
