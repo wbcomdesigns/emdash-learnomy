@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
+import { handleAdmin } from "../src/admin";
+import { catalog } from "../src/learn";
 import { courseWithOutline, member, openSite, QUIZ, type Site } from "./site";
 
 let site: Site | undefined;
@@ -359,5 +361,41 @@ describe("MCP tools", () => {
 		expect((await call("getQuiz", { quiz: made.id })).questions[0].correct).toBe(2);
 		expect((await call("listQuizzes", {})).items[0]).toMatchObject({ title: "Agent quiz", questions: 2 });
 		expect((await call("deleteQuiz", { quiz: made.id, rev: made.quiz.rev })).ok).toBe(true);
+	});
+});
+
+describe("Before the site kit's seed (#38)", () => {
+	// A plain context, not the test host: on the host a missing table is also logged by the bridge as an
+	// uncaught exception, which the release gate reads as a sandbox fault. The message is the one EmDash
+	// 1.5 gives on SQLite and D1 (seen on the host and on a fresh Node site before the seed).
+	const missing = (table: string) => Promise.reject(new Error(`Bridge call content/list failed: {"error":"no such table: ec_${table}"}`));
+	const ctx = {
+		content: { list: (c: string) => missing(c), get: (c: string) => missing(c) },
+		storage: {
+			enrollments: { count: async () => 0 },
+			attempts: { count: async () => 0 },
+			quizzes: { get: async () => ({ ...QUIZ, lessonKey: "" }) },
+			outlines: { get: async () => null, getMany: async () => new Map() },
+		},
+		kv: { get: async () => null },
+	} as never;
+
+	it("every admin screen and the dashboard card show the next step, not a plugin error; routes answer empty", async () => {
+		const steps = [
+			await handleAdmin({ type: "page_load", page: "widget:summary" }, ctx, root),
+			await handleAdmin({ type: "page_load", page: "/outline" }, ctx, root),
+			await handleAdmin({ type: "block_action", action_id: "outline_add", value: { c: "c1" } }, ctx, root),
+			await handleAdmin({ type: "block_action", action_id: "quiz_lessons", value: { q: "q1" } }, ctx, root),
+		] as R[];
+		for (const page of steps) {
+			expect(visible(page)).toContain("Next: copy the site kit");
+			const link = page.blocks.at(-1)!.elements[0];
+			expect(link).toMatchObject({ type: "link", label: "Open the install guide", target: { kind: "external" } });
+			expect(link.target.url).toMatch(/^https:\/\/github\.com\/wbcomdesigns\/emdash-learnomy\/.+install\.md$/);
+		}
+		expect(await catalog({ input: { courses: "c1,c2" } }, ctx)).toEqual({ ok: true, counts: { c1: 0, c2: 0 } });
+		// Any other failure still surfaces as an error.
+		const broken = { ...(ctx as object), content: { list: () => Promise.reject(new Error("network down")) } } as never;
+		await expect(handleAdmin({ type: "page_load", page: "/outline" }, broken, root)).rejects.toThrow("network down");
 	});
 });

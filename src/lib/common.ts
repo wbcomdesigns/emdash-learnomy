@@ -33,3 +33,10 @@ export function countProgress(done: string[], lessons: string[]) {
 	const count = lessons.filter((id) => set.has(id)).length;
 	return { done: count, total: lessons.length, finished: lessons.length > 0 && count === lessons.length };
 }
+
+/**
+ * A content call failed because Learnomy's content types (lms_courses, lms_lessons) are not created
+ * yet: the site kit's seed has not run. EmDash 1.5 throws the database's own message ("no such table:
+ * ec_lms_courses" on SQLite and D1; "does not exist" on Postgres).
+ */
+export const typesMissing = (error: unknown) => /no such table|does not exist/i.test(error instanceof Error ? error.message : String(error));

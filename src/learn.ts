@@ -13,7 +13,7 @@ import {
 	type Outline,
 	type Quiz,
 } from "./schemas";
-import { BAD_INPUT, countProgress, type Ctx, fail, nowIso, parse, titleOf } from "./lib/common";
+import { BAD_INPUT, countProgress, type Ctx, fail, nowIso, parse, titleOf, typesMissing } from "./lib/common";
 import { gates, grade, hasPassed, MAX_HISTORY, percentOf, readAttempt, retakeState, reviewOf } from "./lib/attempts";
 import { coursesOf, getOutline as loadOutline } from "./lib/outlines";
 import { asRecord, asString } from "./util";
@@ -71,7 +71,15 @@ export async function findPublished(ctx: Ctx, collection: string, wanted: Set<st
 			complete = true;
 			break;
 		}
-		const result = await ctx.content!.list(collection, { where: { status: "published" }, limit: 100, ...(cursor ? { cursor } : {}) });
+		// Before the kit's seed creates the collection nothing is published: routes answer empty (#38).
+		const result = await ctx.content!.list(collection, { where: { status: "published" }, limit: 100, ...(cursor ? { cursor } : {}) }).catch((error: unknown) => {
+			if (typesMissing(error)) return null;
+			throw error;
+		});
+		if (!result) {
+			complete = true;
+			break;
+		}
 		for (const item of result.items) if (wanted.has(item.id)) found.set(item.id, item);
 		if (!result.hasMore || !result.cursor) {
 			complete = true;

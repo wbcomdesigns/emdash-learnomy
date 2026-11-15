@@ -1,6 +1,6 @@
 import type { Question, Quiz } from "./schemas";
 import { MAX_ATTEMPTS, MAX_QUESTIONS, MAX_WAIT_MINUTES } from "./schemas";
-import { type Ctx, type Fail, titleOf } from "./lib/common";
+import { type Ctx, type Fail, titleOf, typesMissing } from "./lib/common";
 import { getOutline, saveOutline } from "./lib/outlines";
 import { FIND_MATCHES, listEnrollments, listResults, LIST_PAGE } from "./lib/people";
 import { BLANK, deleteQuiz, getQuiz, listQuizzes, writeQuiz } from "./lib/quizzes";
@@ -690,7 +690,37 @@ export const openKey = (user: string) => `state:open:${user}`;
 /** The quiz the lesson panel asked to open, kept for the next Quizzes page load. */
 export const openQuizKey = (user: string) => `state:openquiz:${user}`;
 
+/** The guide that copies the kit and creates the content types, on the repository the plugin names. */
+export const INSTALL_GUIDE = "https://github.com/wbcomdesigns/emdash-learnomy/blob/main/docs/website/getting-started/install.md";
+
+/**
+ * Every admin screen before the site kit's seed has run (no lms_courses or lms_lessons yet): the next
+ * step instead of "Plugin error" (#38). No reads.
+ */
+function setUpFirst(): BlockResponse {
+	return {
+		blocks: [
+			{
+				type: "banner",
+				variant: "default",
+				title: "Next: copy the site kit",
+				description: "Learnomy's Courses and Lessons content types are not on this site yet. Step 2 of the install guide copies the course pages into your site and adds them. Then restart or redeploy the site and come back here.",
+			},
+			actionsRow({ type: "link", label: "Open the install guide", target: { kind: "external", url: INSTALL_GUIDE }, appearance: "primary" }),
+		],
+	};
+}
+
 export async function handleAdmin(input: unknown, ctx: Ctx, user?: User): Promise<BlockResponse> {
+	try {
+		return await route(input, ctx, user);
+	} catch (error) {
+		if (typesMissing(error)) return setUpFirst();
+		throw error;
+	}
+}
+
+async function route(input: unknown, ctx: Ctx, user?: User): Promise<BlockResponse> {
 	const raw = asRecord(input);
 	const type = asString(raw.type);
 	const action = asString(raw.action_id);
