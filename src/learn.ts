@@ -47,12 +47,16 @@ type Item = { id: string; slug: string | null; data: unknown };
  * the first 100 published entries (on most sites that finds them all). Once the ids still missing fit
  * in the calls left, each is looked up by id instead, so a draft, scheduled or deleted entry costs one
  * call, not a scan of every page. Otherwise it keeps reading 100 a page.
- * ponytail: with more missing ids than calls left, an entry past the last page read counts as not
- * published (hidden, never leaked). EmDash 1.5 content.list cannot filter by id
- * (emdash dist content-*.mjs findMany: status, authorId, locale, search, dates, bylines only).
+ * `unchecked` names the ids it never reached (the page cap ran out first). Showing treats them as not
+ * published (hidden, never leaked); deciding anything else on them must fail closed (completeLesson
+ * counts them as still to do).
+ * ponytail: with more missing ids than calls left, an entry past the last page read is not checked.
+ * EmDash 1.5 content.list cannot filter by id (emdash dist content-*.mjs findMany: status, authorId,
+ * locale, search, dates, bylines only).
  */
-export async function findPublished(ctx: Ctx, collection: string, wanted: Set<string>, pages: number): Promise<Map<string, Item>> {
+export async function findPublished(ctx: Ctx, collection: string, wanted: Set<string>, pages: number): Promise<Map<string, Item> & { unchecked: Set<string> }> {
 	const found = new Map<string, Item>();
+	let complete = wanted.size === 0;
 	let cursor: string | undefined;
 	for (let page = 0; page < pages && found.size < wanted.size; page += 1) {
 		const missing = [...wanted].filter((id) => !found.has(id));
@@ -61,14 +65,19 @@ export async function findPublished(ctx: Ctx, collection: string, wanted: Set<st
 			items.forEach((item, i) => {
 				if (item?.status === "published") found.set(missing[i]!, item);
 			});
+			complete = true;
 			break;
 		}
 		const result = await ctx.content!.list(collection, { where: { status: "published" }, limit: 100, ...(cursor ? { cursor } : {}) });
 		for (const item of result.items) if (wanted.has(item.id)) found.set(item.id, item);
-		if (!result.hasMore || !result.cursor) break;
+		if (!result.hasMore || !result.cursor) {
+			complete = true;
+			break;
+		}
 		cursor = result.cursor;
 	}
-	return found;
+	const unchecked = complete || found.size === wanted.size ? new Set<string>() : new Set([...wanted].filter((id) => !found.has(id)));
+	return Object.assign(found, { unchecked });
 }
 
 export type OutlineLesson = { id: string; title: string; slug: string };
@@ -306,7 +315,7 @@ export async function completeLesson(routeCtx: RouteCtx, ctx: Ctx) {
 		return fail("LESSON_NOT_IN_COURSE", "That lesson is not part of this course.");
 	}
 	// Published status of the outline lessons left to do, looked up once: a retry only has fewer left.
-	let live: Map<string, Item> | null = null;
+	let live: Awaited<ReturnType<typeof findPublished>> | null = null;
 	// Two tries: a second tab marking another lesson at the same moment changes the revision once.
 	for (let attempt = 0; attempt < 2; attempt += 1) {
 		const current = await ctx.storage.enrollments!.getVersioned(key);
@@ -316,8 +325,9 @@ export async function completeLesson(routeCtx: RouteCtx, ctx: Ctx) {
 		let finished = false;
 		if (!row.completedAt) {
 			const left = course.lessons.map((lesson) => lesson.id).filter((id) => !done.includes(id));
-			live ??= left.length ? await findPublished(ctx, "lms_lessons", new Set(left), LESSON_PAGES) : new Map();
-			finished = !left.some((id) => live!.has(id));
+			live ??= await findPublished(ctx, "lms_lessons", new Set(left), LESSON_PAGES);
+			// Fail closed: a lesson the scan never reached counts as still to do.
+			finished = !left.some((id) => live!.has(id) || live!.unchecked.has(id));
 		}
 		const next: Enrollment = {
 			...row,
