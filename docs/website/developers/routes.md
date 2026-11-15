@@ -18,6 +18,7 @@ GET routes take their input as query parameters. POST routes take a JSON body. E
 | `catalog` | GET | `courses`: up to 24 course ids, comma separated | `counts`: published lessons per course, 0 for a course that is not published |
 | `lessonCourses` | GET | `lesson`: lesson entry id | The published courses the lesson is in, Open courses first |
 | `quiz` | GET | `lesson`: lesson entry id | The lesson's quiz for a published lesson in a published Open course: questions (`choice` and `multi` with their four answers, `true_false`, `short`, `blank` with `___` in the prompt), `mode`, `passMark` (graded quizzes with one) and `retake`. Never correct or accepted answers or explanations. Any other lesson answers `SIGN_IN_REQUIRED` (use `memberQuiz` when signed in) |
+| `certificate` | GET | `token`: the 32-character code from a certificate link | `certificate`: `member` (the name, empty when the account has none), `course`, `completedAt` and `site`. Never an email or id. An unknown, malformed or switched-off code answers `CERTIFICATE_NOT_FOUND`, the same each time |
 | `health` | GET | none | The plugin id and version |
 
 ## Member routes (signed in)
@@ -32,7 +33,9 @@ The member is always the signed-in account. A member id in the input is never us
 | `enroll` | POST | `course` | The new enrollment. `ALREADY_ENROLLED` the second time |
 | `completeLesson` | POST | `course`, `lesson` | The updated enrollment. `completedAt` is set the first time every published lesson of the outline is done (a draft, scheduled or deleted lesson does not hold the course open). `NOT_ENROLLED`, `LESSON_NOT_IN_COURSE`, `QUIZ_NOT_PASSED` (the lesson's graded quiz has a pass mark the member's best score has not reached) |
 | `submitQuiz` | POST | `quiz`, `answers`: one per question: a number 0 to 3 (`choice`, `true_false`), a list of numbers (`multi`) or text (`short`, `blank`) | `score`, `total`, `percent`, which questions were right, `mode` and the member's standing as in `mine`. Only a practice quiz adds `review`: each question's right answer and explanation. Refused with `NO_ATTEMPTS_LEFT`, or `RETRY_LATER` with `retryAt` |
-| `eraseMember` | POST | none | Deletes the member's enrollments and quiz results with every past attempt. For every quiz the member took that still exists it keeps only the attempts used and the last attempt time, so a limit set now or later still applies; records of deleted quizzes are removed (the admin erase removes all of them). `done: false` means call it again |
+| `myCertificates` | GET | none | The member's finished courses, newest completion first (up to 50): `course`, `completedAt`, `on`, and `token` when the link is on. Courses finished before 0.3.0 get their certificate here |
+| `setCertificate` | POST | `course`, `on`: true or false | Turns the member's certificate link off, or on again with a new `token` (the old link stops working). Turning on a link that is already on keeps it. `NOT_FINISHED` for a course the member has not finished |
+| `eraseMember` | POST | none | Deletes the member's enrollments (and with them their certificates) and quiz results with every past attempt. For every quiz the member took that still exists it keeps only the attempts used and the last attempt time, so a limit set now or later still applies; records of deleted quizzes are removed (the admin erase removes all of them). `done: false` means call it again |
 
 A guest calling a member route gets `SIGN_IN_REQUIRED`.
 

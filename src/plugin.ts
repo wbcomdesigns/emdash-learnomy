@@ -2,7 +2,10 @@ import type { RouteEntry, SandboxedPlugin } from "emdash/plugin";
 
 import { handleAdmin } from "./admin";
 import { catalog, completeLesson, courseGraph, enroll, eraseMember, lessonCourses, memberQuiz, myCourses, outline, progress, quiz, submitQuiz } from "./learn";
+import { certificate, myCertificates, setCertificate } from "./lib/certificates";
+import { BAD_INPUT, fail, parse } from "./lib/common";
 import { handlePanel } from "./panel";
+import { setCertificateInput } from "./schemas";
 import { DAILY, daily, setUp } from "./tasks";
 import { mcpTools, toolRoutes } from "./tools";
 
@@ -10,6 +13,7 @@ import { mcpTools, toolRoutes } from "./tools";
 // member routes read the host-verified routeCtx.user.
 const MEMBER = "content:read";
 const ADMIN = "plugins:manage";
+const SIGN_IN = fail("SIGN_IN_REQUIRED", "Sign in to continue.");
 
 const tools: Record<string, RouteEntry> = Object.fromEntries(
 	Object.entries(toolRoutes).map(([name, run]) => [name, { permission: ADMIN, methods: ["POST"], handler: async (routeCtx, ctx) => run(routeCtx, ctx) }]),
@@ -40,6 +44,18 @@ const plugin: SandboxedPlugin = {
 		enroll: { permission: MEMBER, methods: ["POST"], handler: async (routeCtx, ctx) => enroll(routeCtx, ctx) },
 		completeLesson: { permission: MEMBER, methods: ["POST"], handler: async (routeCtx, ctx) => completeLesson(routeCtx, ctx) },
 		submitQuiz: { permission: MEMBER, methods: ["POST"], handler: async (routeCtx, ctx) => submitQuiz(routeCtx, ctx) },
+		// 0.3.0 certificates. The public route answers only name, course, date and site for a link that is on.
+		certificate: { public: true, methods: ["GET"], handler: async (routeCtx, ctx) => certificate(routeCtx.input, ctx) },
+		myCertificates: { permission: MEMBER, methods: ["GET"], handler: async (routeCtx, ctx) => (routeCtx.user ? myCertificates(routeCtx.user.id, ctx) : SIGN_IN) },
+		setCertificate: {
+			permission: MEMBER,
+			methods: ["POST"],
+			handler: async (routeCtx, ctx) => {
+				if (!routeCtx.user) return SIGN_IN;
+				const input = parse(setCertificateInput, routeCtx.input);
+				return input ? setCertificate(routeCtx.user.id, input.course, input.on, ctx) : BAD_INPUT;
+			},
+		},
 		eraseMember: { permission: MEMBER, methods: ["POST"], handler: async (routeCtx, ctx) => eraseMember(routeCtx, ctx) },
 		admin: { permission: ADMIN, handler: async (routeCtx, ctx) => handleAdmin(routeCtx.input, ctx, routeCtx.user) },
 		// Anyone who may edit a lesson sees which courses hold it.

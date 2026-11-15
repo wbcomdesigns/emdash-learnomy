@@ -329,12 +329,12 @@ describe("Lesson panel and dashboard card", () => {
 });
 
 describe("MCP tools", () => {
-	it("declares the eight tools on private routes with explicit permissions; deletes and overwrites are destructive", async () => {
+	it("declares the ten tools on private routes with explicit permissions; deletes and overwrites are destructive", async () => {
 		const s = (site = await openSite());
 		const manifest = s.rt.manifest as unknown as { mcp: { tools: Array<{ name: string; route: string; destructive?: boolean }> }; routes: Array<{ name: string; public?: boolean; permission?: string }> };
 		const tools = Object.fromEntries(manifest.mcp.tools.map((t) => [t.name, t]));
-		expect(Object.keys(tools).sort()).toEqual(["deleteQuiz", "getOutline", "getQuiz", "listEnrollments", "listQuizzes", "listResults", "saveQuiz", "setOutline"]);
-		for (const name of ["deleteQuiz", "saveQuiz", "setOutline"]) expect(tools[name]!.destructive, name).toBe(true);
+		expect(Object.keys(tools).sort()).toEqual(["deleteQuiz", "getOutline", "getQuiz", "listCertificates", "listEnrollments", "listQuizzes", "listResults", "saveQuiz", "setOutline", "turnOffCertificate"]);
+		for (const name of ["deleteQuiz", "saveQuiz", "setOutline", "turnOffCertificate"]) expect(tools[name]!.destructive, name).toBe(true);
 		for (const tool of Object.values(tools)) {
 			const route = manifest.routes.find((r) => r.name === tool.route)!;
 			expect(route.public ?? false).toBe(false);

@@ -15,6 +15,7 @@ import {
 } from "./schemas";
 import { BAD_INPUT, countProgress, type Ctx, fail, nowIso, parse, titleOf } from "./lib/common";
 import { gates, grade, hasPassed, MAX_HISTORY, percentOf, readAttempt, retakeState, reviewOf } from "./lib/attempts";
+import { newToken } from "./lib/certificates";
 import { coursesOf, getOutline as loadOutline } from "./lib/outlines";
 import { asRecord, asString } from "./util";
 
@@ -432,7 +433,8 @@ export async function enroll(routeCtx: RouteCtx, ctx: Ctx) {
  * attempt meets it (practice quizzes never block); a lesson already done stays done. Calls: the outline
  * beside the lesson's quiz, the member's attempt when that quiz has a pass mark, the status of the
  * outline lessons not yet done (13 at most, none when all are done), then getVersioned and
- * compareAndSet, twice at most: 20 at most, 4 on most sites.
+ * compareAndSet, twice at most: 20 at most, 4 on most sites. The write that finishes the course also
+ * issues its certificate link (certToken).
  */
 export async function completeLesson(routeCtx: RouteCtx, ctx: Ctx) {
 	const member = routeCtx.user?.id;
@@ -471,6 +473,8 @@ export async function completeLesson(routeCtx: RouteCtx, ctx: Ctx) {
 			done,
 			updatedAt: nowIso(),
 			completedAt: row.completedAt ?? (finished ? nowIso() : null),
+			// Finishing issues the certificate in the same write (0.3.0).
+			...(finished && !row.completedAt && row.certToken == null ? { certToken: newToken() } : {}),
 		};
 		if (done === row.done && next.completedAt === row.completedAt) return { ok: true, enrollment: row };
 		const write = await ctx.storage.enrollments!.compareAndSet(key, current.revision, next);

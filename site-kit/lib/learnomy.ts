@@ -15,6 +15,9 @@ export const isOpenCourse = (data: { access?: unknown }) => data.access === "ope
 
 export const courseHref = (slug: string) => `/courses/${encodeURIComponent(slug)}`;
 
+/** A certificate's shareable page. The token is the whole secret: 32 hex characters. */
+export const certificateHref = (token: string) => `/certificates/${encodeURIComponent(token)}`;
+
 /** A lesson page knows its course from ?course=, because one lesson can sit in several courses. */
 export const lessonHref = (lessonSlug: string, courseSlug?: string) =>
 	`/lessons/${encodeURIComponent(lessonSlug)}${courseSlug ? `?course=${encodeURIComponent(courseSlug)}` : ""}`;

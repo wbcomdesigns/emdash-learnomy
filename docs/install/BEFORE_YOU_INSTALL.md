@@ -2,7 +2,7 @@
 
 Every Wbcom EmDash plugin starts its registry Installation tab and its `docs/website/getting-started/install.md` with this block, word for word, so a developer meets the same first steps on every plugin. Change it here first, then copy it into each plugin at its next release.
 
-Fill in `<Plugin>`, `<slug>`, `<repo>` and `<tag>` for each plugin. `<tag>` is the version being released (`v0.2.1`), never `main`.
+Fill in `<Plugin>`, `<slug>`, `<repo>` and `<tag>` for each plugin. `<tag>` is the version being released (`v0.3.0`), never `main`.
 
 ---
 

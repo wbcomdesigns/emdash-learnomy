@@ -59,7 +59,7 @@ Ask the agent in plain words, for example: "Make a five-lesson Open course calle
    Quiz settings, all optional: `mode` (`graded`, the default, or `practice`: never blocks progress and shows the right answers after submitting), `passMark` (1 to 100 percent: a graded quiz with a pass mark must be passed before its lesson can be marked complete; `null` removes it) and `retake` (`{ "type": "unlimited" }`, `{ "type": "max", "attempts": 3 }` or `{ "type": "wait", "minutes": 60 }`). Leaving a setting out keeps what the quiz has.
 5. **Check.** `getOutline` again, and open `/courses/` on the site.
 
-Later, `listEnrollments` and `listResults` give the agent who enrolled and how they scored, 15 a page, with `find` for a name or email.
+Later, `listEnrollments` and `listResults` give the agent who enrolled and how they scored, 15 a page, with `find` for a name or email. `listCertificates` with a course id lists who finished it, 8 a page: member id and name, `completedAt`, and `on` (with the link `token` when on). `turnOffCertificate` with `course` and `member` switches a member's certificate link off; it is marked destructive, because a link someone shared stops working. Only the member can turn it on again.
 
 ## Version tokens
 

@@ -17,6 +17,7 @@ A teacher, a company training its staff, or a publisher who wants courses on the
 - **Open or Members courses.** Anyone can read an Open course. A Members course asks guests to sign in. See [What Members means](what-members-means.md).
 - **Free enrollment and progress.** Members enroll, mark each lesson complete and see "3 of 8 lessons done". A course is finished when every lesson is done.
 - **One quiz per lesson.** Multiple choice with four answers, or true or false, up to 20 questions. The score is worked out on your site, so visitors never see the right answers before they submit.
+- **Certificates.** A member who finishes a course gets a printable certificate with a link to share. See [Certificates](../manage/admin-guide.md#certificates).
 - **Your courses** for members: a list of their courses with progress and Continue, on your site's account page.
 - **Lists for you:** Enrollments and Quiz results, with names, and an erase button for one member's data.
 - **Ready for AI agents.** An agent can build a whole course for you. See [Build a course with agents](../developers/agents.md).
@@ -27,4 +28,4 @@ The plugin is the engine: it stores enrollments, progress and quizzes and draws 
 
 ## What it does not do
 
-No prices, checkout or coupons. No certificates yet. Members join by your invite for now: see [Let members join](let-members-join.md).
+No prices, checkout or coupons. Members join by your invite for now: see [Let members join](let-members-join.md).

@@ -97,6 +97,10 @@ export const saveQuizInput = z.object({
 });
 export const deleteQuizInput = z.object({ quiz: id, rev: z.string().check(z.maxLength(64)) });
 export const listInput = z.object({ cursor, find });
+/* 0.3.0 certificates. */
+export const setCertificateInput = z.object({ course: id, on: z.boolean() });
+export const listCertificatesInput = z.object({ course: id, cursor });
+export const certificateOffInput = z.object({ course: id, member: id });
 
 export type Quiz = z.infer<typeof quiz>;
 export type Question = z.infer<typeof question>;
@@ -113,6 +117,8 @@ export type Enrollment = {
 	updatedAt: string;
 	completedAt: string | null;
 	done: string[];
+	/** 0.3.0 certificate link: absent or null not issued yet, "" switched off, 32 hex characters on. */
+	certToken?: string | null;
 };
 
 /** One submission kept in an attempt row's history. */

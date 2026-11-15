@@ -1,3 +1,13 @@
+## 0.3.0
+
+Course certificates. No new permissions. Copy the site kit again after updating.
+
+- New      - A printable certificate for every finished course, with a link to share.
+- New      - Members view, copy, turn off or renew their link in Your courses.
+- New      - Certificates admin page per course, with Turn link off.
+- New      - MCP tools to list certificates and turn a link off.
+- Improve  - Courses finished earlier get their certificate on first view.
+
 ## 0.2.1
 
 Fixes. No new permissions. Copy the site kit again after updating.
@@ -15,15 +25,6 @@ Richer quizzes. No new permissions. Copy the site kit again after updating.
 - New      - Practice mode with right answers and explanations after submitting.
 - Improve  - Quiz results shows best score and attempts; members see attempts left and passed quizzes.
 
-## 0.1.1
-
-Fixes. No new permissions. Copy the site kit again after updating.
-
-- Improve  - Find counts only the matches and pages through all of them.
-- Fix      - A course with no access value shows as Members everywhere.
-- Fix      - The catalog's Previous link goes to the previous page.
-- Dev      - Indexes for the admin lists; redeploy note for Cloudflare.
-
 ## 0.1.0
 
 The first release. Needs EmDash 1.5.0 or later.
@@ -36,3 +37,5 @@ The first release. Needs EmDash 1.5.0 or later.
 - New      - MCP tools for outlines, quizzes and lists, so an agent can build a whole course.
 
 New permissions: Read your content, Read user accounts.
+
+Older releases: see CHANGELOG.md in the repository.

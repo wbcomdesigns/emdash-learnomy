@@ -79,7 +79,19 @@ On Enrollments or Quiz results, open **Manage** on the member's row and choose *
 
 A member with a very long history may need a second press: the page says "Press Erase again to finish".
 
-Members can also erase their own Learnomy data from Your courses on your site. That removes their enrollments, progress, answers and scores. For quizzes with a maximum number of attempts or a wait, it keeps only how many attempts they used and when, so erasing never resets a limit.
+Members can also erase their own Learnomy data from Your courses on your site. That removes their enrollments, progress, certificates, answers and scores. For quizzes with a maximum number of attempts or a wait, it keeps only how many attempts they used and when, so erasing never resets a limit.
+
+## Certificates
+
+When a member finishes a course (every published lesson done, and every graded quiz with a pass mark passed), Learnomy gives them a certificate with its own link to share. The certificate shows the member's name, the course, the completion date and your site's name (from **Settings**, site title). It never shows their email.
+
+**Plugins**, **Certificates**. Pick a course with **Certificates**. The list shows each member who finished it, newest first, eight to a page, with the date and whether their link is on.
+
+- **Turn link off** stops the member's link at once, after you confirm. Anyone who opens it sees "Certificate not found". Only the member can turn it on again, and they get a new link.
+- Courses members finished before 0.3.0 get their certificate the first time you open the course here or the member opens Your courses.
+- Erase their data (on Enrollments or Quiz results) deletes the member's certificates too.
+
+The certificate page is the kit's `/certificates/<link>`. It is never cached, so a link turned off stops working straight away. It asks search engines not to list it, and printing it gives one clean landscape page.
 
 ## The dashboard card
 
