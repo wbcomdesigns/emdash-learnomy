@@ -124,6 +124,23 @@ describe("erase racing a submit", () => {
 		expect(site.calls()).toBeLessThanOrEqual(20);
 	});
 
+	it("the member's erase removes 40 kept records of deleted quizzes in rounds of 20 calls or fewer (#35)", async () => {
+		const site = memorySite();
+		const ids = Array.from({ length: 40 }, (_, i) => `gone${i}`);
+		site.kv.set("state:retakes:ana", { value: ["q1", ...ids], revision: "x" });
+		for (const id of ["q1", ...ids]) site.kv.set(`state:retake:ana:${id}`, { value: { attempts: 1, at: "2026-11-10T11:00:00Z" }, revision: "x" });
+		let done = false;
+		for (let round = 0; round < 5 && !done; round += 1) {
+			site.resetCalls();
+			done = (await eraseRows(site.counted, "ana", true)).done;
+			expect(site.calls()).toBeLessThanOrEqual(20);
+		}
+		expect(done).toBe(true);
+		// q1 still exists, so its record and index entry stay.
+		expect([...site.kv.keys()].filter((key) => key.startsWith("state:retake"))).toEqual(["state:retakes:ana", "state:retake:ana:q1"]);
+		expect(site.kv.get("state:retakes:ana")?.value).toEqual(["q1"]);
+	});
+
 	it("the admin erase never orphans a kept record a racing submit lists meanwhile", async () => {
 		const site = memorySite();
 		const submit = (quiz: string) => submitQuiz({ input: { quiz, answers: [0] }, user: { id: "ana" } }, site.ctx) as Promise<Record<string, any>>;

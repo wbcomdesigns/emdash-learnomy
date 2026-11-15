@@ -169,8 +169,8 @@ export async function lessonCourses(routeCtx: RouteCtx, ctx: Ctx) {
 const attemptId = (memberId: string, quizId: string) => `${memberId}:${quizId}`;
 
 /**
- * Attempts used and the last attempt time on one quiz with a retake limit: one kv record per member and
- * quiz. Raised before every attempt on a limited quiz is saved and by the member's own erase, never
+ * Attempts used and the last attempt time on one quiz: one kv record per member and quiz. Raised
+ * before every attempt on a limited quiz is saved and by the member's own erase (any quiz), never
  * lowered, so erasing cannot reset a limit (owner, 2026-11-15). No answers, scores or progress. The
  * admin erase deletes them.
  */
@@ -612,11 +612,11 @@ const ERASE_CALLS = 18;
 /**
  * Deletes a member's enrollments and attempts, 100 rows a batch, and stops before the call cap with
  * done: false so the caller asks again. Shared by the member route and the admin erase.
- * `keepRetakes` (the member's own erase): before an attempt row of a quiz that is limited now is
- * deleted, its kept record is raised to the row's attempts and time (a backstop for attempts made
- * before 0.2.0 or while the quiz was unlimited); a row whose raise cannot apply is left for the next
- * call. The admin erase deletes the member's kept records too. Per attempts page: query, the quizzes,
- * the kept records (one list), two calls per record to raise, the delete.
+ * `keepRetakes` (the member's own erase): before an attempt row of a quiz still on the site is
+ * deleted, its kept record is raised to the row's attempts and time, whatever the quiz's retake policy
+ * now (#35); a row whose raise cannot apply is left for the next call. Then the kept records of deleted
+ * quizzes are removed. The admin erase deletes all of the member's kept records. Per attempts page:
+ * query, the quizzes, per row the record read and up to three calls to raise it, the delete.
  */
 export async function eraseRows(ctx: Ctx, memberId: string, keepRetakes = false): Promise<{ done: boolean; deleted: number }> {
 	let calls = 0;
@@ -646,7 +646,9 @@ export async function eraseRows(ctx: Ctx, memberId: string, keepRetakes = false)
 			const safe = new Set(ids.filter((id) => !rows.some((r) => r.id === id)));
 			for (const { id, row } of rows) {
 				const quiz = parse(quizSchema, quizzes.get(row.quizId));
-				if (!quiz || quiz.retake.type === "unlimited") {
+				// Every quiz still on the site keeps its count, whatever its policy now, so limiting it later
+				// still counts these attempts (#35). A deleted quiz's record goes in the sweep below.
+				if (!quiz) {
 					safe.add(id);
 					continue;
 				}
@@ -676,7 +678,31 @@ export async function eraseRows(ctx: Ctx, memberId: string, keepRetakes = false)
 		if (skipped) return { done: false, deleted };
 		if (!page.hasMore) break;
 	}
-	if (!keepRetakes) {
+	if (keepRetakes) {
+		// Kept records of quizzes deleted since limit nothing: delete them, then drop them from the index.
+		// Records first, so a refused index write leaves an entry with no record, never a record with no entry.
+		// ponytail: checks as many 80-id chunks of the index as the calls allow (about 1,200 quizzes); past
+		// that, a deleted quiz's record waits for the admin erase.
+		if (!room(2)) return { done: false, deleted };
+		const index = await ctx.kv.getVersioned<string[]>(retakeIndex(memberId));
+		calls += 1;
+		const quizIds = index?.value ?? [];
+		const gone: string[] = [];
+		for (let i = 0; i < quizIds.length && room(3); i += IN_CHUNK) {
+			const chunk = quizIds.slice(i, i + IN_CHUNK);
+			const live = await ctx.storage.quizzes!.getMany(chunk);
+			calls += 1;
+			gone.push(...chunk.filter((quizId) => !live.has(quizId)));
+		}
+		const now = gone.slice(0, Math.max(0, ERASE_CALLS - calls - 1));
+		if (now.length) {
+			// The slice above left room for these deletes and the index write.
+			for (const quizId of now) await ctx.kv.delete(retakeKey(memberId, quizId));
+			const left = quizIds.filter((quizId) => !now.includes(quizId));
+			const changed = left.length ? await ctx.kv.compareAndSet(retakeIndex(memberId), index!.revision, left) : await ctx.kv.compareAndDelete(retakeIndex(memberId), index!.revision);
+			if (!changed.applied || now.length < gone.length) return { done: false, deleted };
+		}
+	} else {
 		// The admin erase: every kept record in the member's index, then the index (what is left of it
 		// when the calls run out, so the next call carries on).
 		// The index is changed first, with compare-and-set: a submit that lists a quiz meanwhile makes it

@@ -1,3 +1,10 @@
+## 0.2.1
+
+Fixes. No new permissions. Copy the site kit again after updating.
+
+- Fix      - A member's own erase keeps attempts used on every quiz, so a limit set later still counts them.
+- Fix      - A member's own erase removes the attempt counts of deleted quizzes.
+
 ## 0.2.0
 
 Richer quizzes. No new permissions. Copy the site kit again after updating.

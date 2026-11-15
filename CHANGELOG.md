@@ -2,6 +2,13 @@
 
 Versions match `package.json`, the git tag and the registry release. Newest first.
 
+## [0.2.1]
+
+Retake counts through a member's own erase. No new permissions and no new storage. Copy the site kit again after updating (`learnomy-strings.ts`).
+
+- Fix      - A member's own erase keeps attempts used for every quiz they took, so a quiz limited later still counts attempts made before the erase.
+- Fix      - A member's own erase removes the kept attempt counts of quizzes that were deleted.
+
 ## [0.2.0]
 
 Richer quizzes. No new permissions and no new storage. Copy the site kit again after updating (course and lesson pages, Your courses, `learnomy-strings.ts`, `learnomy.css`).

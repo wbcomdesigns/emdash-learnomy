@@ -109,7 +109,7 @@ export const S = {
 		completed: "Completed",
 		gone: "This course is no longer available.",
 		erase: "Erase my course data",
-		eraseHelp: "Removes your enrollments, progress, quiz answers and scores on this site. It cannot be undone. For quizzes with an attempt limit or a wait, the site keeps how many attempts you used and when, so the limit still applies.",
+		eraseHelp: "Removes your enrollments, progress, quiz answers and scores on this site. It cannot be undone. For each quiz you took, the site keeps how many attempts you used and when, so an attempt limit or a wait still applies.",
 		eraseConfirm: "Erase everything?",
 		eraseYes: "Yes, erase",
 		eraseNo: "Cancel",

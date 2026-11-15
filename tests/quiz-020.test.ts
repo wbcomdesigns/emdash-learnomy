@@ -258,6 +258,57 @@ describe("erase and retake limits (owner, 2026-11-15)", () => {
 		expect(await s.post("submitQuiz", { quiz: "q1", answers: [2, 0] }, who)).toMatchObject({ ok: true, attempts: 1 });
 	});
 
+	it("0.2.1 (#35): the member's erase keeps attempts used on a quiz that is unlimited now, so limiting it later still counts them", async () => {
+		const s = await open();
+		await lessonWithQuiz(s, { ...QUIZ, retake: { type: "max", attempts: 3 } });
+		const setRetake = async (retake: Record<string, unknown>) => {
+			const row = await s.rt.inspect.storage.get<Record<string, unknown>>("quizzes", "q1");
+			await s.rt.fixtures.plugin.storage("quizzes", "q1", { ...row, retake });
+		};
+		for (let i = 0; i < 2; i += 1) await s.post("submitQuiz", { quiz: "q1", answers: [0, 0] }, ana);
+		await setRetake({ type: "unlimited" });
+		for (let i = 0; i < 5; i += 1) await s.post("submitQuiz", { quiz: "q1", answers: [0, 0] }, ana);
+		expect((await s.post("eraseMember", {}, ana)).done).toBe(true);
+		const kept = JSON.stringify(await s.rt.inspect.kv.get("state:retake:ana:q1"));
+		expect(kept).toContain('"attempts":7');
+		expect(kept).not.toMatch(/score|answers|best|done/);
+		await setRetake({ type: "max", attempts: 3 });
+		expect((await s.post("submitQuiz", { quiz: "q1", answers: [2, 0] }, ana)).error?.code).toBe("NO_ATTEMPTS_LEFT");
+	});
+
+	it("0.2.1 (#35): a quiz that was never limited keeps its count through the member's erase", async () => {
+		const s = await open();
+		const { lesson } = await lessonWithQuiz(s, QUIZ);
+		for (let i = 0; i < 2; i += 1) await s.post("submitQuiz", { quiz: "q1", answers: [0, 0] }, ana);
+		await s.post("eraseMember", {}, ana);
+		expect(await s.rt.inspect.storage.list("attempts")).toHaveLength(0);
+		const row = await s.rt.inspect.storage.get<Record<string, unknown>>("quizzes", "q1");
+		await s.rt.fixtures.plugin.storage("quizzes", "q1", { ...row, retake: { type: "max", attempts: 2 } });
+		expect((await s.get("memberQuiz", { lesson }, ana)).mine).toMatchObject({ attempts: 2, attemptsLeft: 0 });
+	});
+
+	it("0.2.1 (#35): the member's erase removes kept records of deleted quizzes, with or without an attempt row", async () => {
+		const s = await open();
+		await quizOnLesson(s, "q1", "published", { ...QUIZ, retake: { type: "max", attempts: 5 } });
+		await quizOnLesson(s, "q2", "published", { ...QUIZ, retake: { type: "max", attempts: 5 } });
+		await s.post("submitQuiz", { quiz: "q1", answers: [0, 0] }, ana);
+		await s.post("submitQuiz", { quiz: "q2", answers: [0, 0] }, ana);
+		// q2: the member erases first, so its record outlives the attempt row; then both quizzes go.
+		await s.post("eraseMember", {}, ana);
+		await s.post("submitQuiz", { quiz: "q1", answers: [0, 0] }, ana);
+		const del = async (id: string) => {
+			const row = await s.rt.inspect.storage.get<{ rev: string }>("quizzes", id);
+			expect((await s.rt.admin.act("/quizzes", "quiz_delete", { value: { q: id, r: row!.rev }, user: root })) as R).toBeTruthy();
+			expect(await s.rt.inspect.storage.get("quizzes", id)).toBeNull();
+		};
+		await del("q1");
+		await del("q2");
+		expect(await s.rt.inspect.kv.get("state:retake:ana:q2")).not.toBeNull();
+		expect((await s.post("eraseMember", {}, ana)).done).toBe(true);
+		expect(await s.rt.inspect.kv.get("state:retake:ana:q1")).toBeNull();
+		expect(await s.rt.inspect.kv.get("state:retake:ana:q2")).toBeNull();
+		expect(await s.rt.inspect.kv.get("state:retakes:ana")).toBeNull();
+	});
 });
 
 describe("upgrade from 0.1.x, no migration step", () => {
