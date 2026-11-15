@@ -56,10 +56,10 @@ Ask the agent in plain words, for example: "Make a five-lesson Open course calle
 
    Typed answers are compared without case and extra spaces. Any question can carry `"explain": "..."`, shown with the right answer after a practice quiz. Up to 20 questions. A lesson that already has a quiz is refused. To change a quiz, `getQuiz` for its `rev`, then `saveQuiz` with `quiz`, `rev` and the full new questions.
 
-   Quiz settings, all optional: `mode` (`graded`, the default, or `practice`: never blocks progress and shows the right answers after submitting), `passMark` (1 to 100 percent: a graded quiz with a pass mark must be passed before its lesson can be marked complete; `null` removes it) and `retake` (`{ "type": "unlimited" }`, `{ "type": "max", "attempts": 3 }` or `{ "type": "wait", "minutes": 60 }`). Leaving a setting out keeps what the quiz has.
+   Quiz settings, all optional: `mode` (`graded`, the default, or `practice`: never blocks progress and shows the right answers after submitting), `passMark` (a whole percent from 1 to 100: a graded quiz with a pass mark must be passed before its lesson can be marked complete; `null` or `0` removes it) and `retake` (`{ "type": "unlimited" }`, `{ "type": "max", "attempts": 3 }` with 1 to 100 attempts, or `{ "type": "wait", "minutes": 60 }` with 1 to 43200 minutes). Leaving a setting out keeps what the quiz has. A number out of range is refused with `INVALID_QUIZ` and a message saying what is allowed.
 5. **Check.** `getOutline` again, and open `/courses/` on the site.
 
-Later, `listEnrollments` and `listResults` give the agent who enrolled and how they scored, 15 a page, with `find` for a name or email.
+Later, `listEnrollments` and `listResults` give the agent who enrolled and how they scored, 10 a page, with `find` for a name or email.
 
 ## Version tokens
 

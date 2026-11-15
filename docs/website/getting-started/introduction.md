@@ -16,7 +16,7 @@ A teacher, a company training its staff, or a publisher who wants courses on the
 - **A Course outline page** where you pick a course, add its lessons by title and set their order.
 - **Open or Members courses.** Anyone can read an Open course. A Members course asks guests to sign in. See [What Members means](what-members-means.md).
 - **Free enrollment and progress.** Members enroll, mark each lesson complete and see "3 of 8 lessons done". A course is finished when every lesson is done.
-- **One quiz per lesson.** Multiple choice with four answers, or true or false, up to 20 questions. The score is worked out on your site, so visitors never see the right answers before they submit.
+- **One quiz per lesson.** Up to 20 questions: multiple choice, multiple answers, true or false, short answer or fill in the blank. A graded quiz can have a pass mark that members pass before the lesson counts as complete; a practice quiz never blocks and shows the right answers after submitting. You choose unlimited retakes, a maximum number of attempts or a wait between them. The score is worked out on your site, so visitors never see the right answers before they submit.
 - **Your courses** for members: a list of their courses with progress and Continue, on your site's account page.
 - **Lists for you:** Enrollments and Quiz results, with names, and an erase button for one member's data.
 - **Ready for AI agents.** An agent can build a whole course for you. See [Build a course with agents](../developers/agents.md).
