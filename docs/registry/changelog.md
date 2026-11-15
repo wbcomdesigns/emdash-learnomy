@@ -1,3 +1,12 @@
+## 0.1.1
+
+Fixes. No new permissions. Copy the site kit again after updating.
+
+- Improve  - Find counts only the matches and pages through all of them.
+- Fix      - A course with no access value shows as Members everywhere.
+- Fix      - The catalog's Previous link goes to the previous page.
+- Dev      - Indexes for the admin lists; redeploy note for Cloudflare.
+
 ## 0.1.0
 
 The first release. Needs EmDash 1.5.0 or later.

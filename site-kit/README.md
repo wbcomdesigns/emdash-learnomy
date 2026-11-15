@@ -11,7 +11,7 @@ version installed on the site:
 
 ```bash
 kit="$(mktemp -d)/emdash-learnomy" &&
-  git clone --depth 1 --branch v0.1.0 https://github.com/wbcomdesigns/emdash-learnomy "$kit" &&
+  git clone --depth 1 --branch v0.1.1 https://github.com/wbcomdesigns/emdash-learnomy "$kit" &&
   mkdir -p src/pages src/components src/lib src/styles src/layouts &&
   cp -R "$kit/site-kit/pages/." src/pages/ &&
   cp "$kit/site-kit/components/LearnomyMyCourses.astro" src/components/ &&
