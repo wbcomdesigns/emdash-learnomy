@@ -94,7 +94,8 @@ export async function listResults(ctx: Ctx, opts: ListOpts): Promise<Listed<Atte
 	const [total, page] = await Promise.all([
 		ctx.storage.attempts!.count(where),
 		ctx.storage.attempts!.query({
-			...(where ? { where, orderBy: { submittedAt: "desc" } } : { orderBy: { submittedAt: "desc" } }),
+			...(where ? { where } : {}),
+			orderBy: { submittedAt: "desc" },
 			limit: LIST_PAGE,
 			...(opts.cursor ? { cursor: opts.cursor } : {}),
 		}),
