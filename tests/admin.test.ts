@@ -246,6 +246,14 @@ describe("Enrollments and Quiz results", () => {
 		expect(table(page)!.rows.map((r: { member: string }) => r.member)).toEqual(["Ben Ito", "Ben Ito"]);
 		page = (await admin.submit("/enrollments", "enrollments_find", { find: "ana@example.com" }, { user: root })) as R;
 		expect(table(page)!.rows).toHaveLength(15);
+		// The count is the matches, not the site-wide total, and Next pages through the rest of them.
+		expect(page.blocks.find((b) => b.type === "stats")!.items[0]).toMatchObject({ label: "Matches", value: 18 });
+		const findNext = page.blocks.find((b) => b.type === "actions")!.elements.find((e: { label: string }) => e.label === "Next page");
+		const rest = (await admin.act("/enrollments", "enrollments_page", { value: findNext.value, user: root })) as R;
+		expect(table(rest)!.rows.map((r: { member: string }) => r.member)).toEqual(["Ana Lopez", "Ana Lopez", "Ana Lopez"]);
+		expect(rest.blocks.find((b) => b.type === "stats")!.items[0]).toMatchObject({ label: "Matches", value: 18 });
+		const results0 = (await admin.submit("/results", "results_find", { find: "ito" }, { user: root })) as R;
+		expect(results0.blocks.find((b) => b.type === "stats")!.items[0]).toMatchObject({ label: "Matches", value: 0 });
 		const results = (await admin.loadPage("/results", { user: root })) as R;
 		expect(table(results)!.rows[0]).toMatchObject({ member: "Ana Lopez", quiz: "Check yourself: 1 of 2, 1 Nov 2026" });
 		const anaRow = table(page)!.rows[0];

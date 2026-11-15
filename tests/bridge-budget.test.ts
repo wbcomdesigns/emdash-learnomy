@@ -57,6 +57,7 @@ const MEASURED: Record<string, number> = {
 	"admin page_load /enrollments (15 members)": 18,
 	"admin enrollments_find (name, 520 members)": 7,
 	"admin enrollments_find (email)": 4,
+	"admin enrollments_page (Find by name, page 2)": 8,
 	"admin page_load /results (15 members)": 18,
 	"admin member_menu (asks first)": 0,
 	"admin member_erase (500 + 500 rows, each round)": 18,
@@ -219,6 +220,13 @@ describe("bridge calls per entry point, worst case", () => {
 		expect(page.blocks.find((b: Out) => b.type === "table").rows.filter((r: Out) => /^Member /.test(r.member))).toHaveLength(14);
 		await measure("admin enrollments_find (name, 520 members)", () => admin.submit("/enrollments", "enrollments_find", { find: "member 3" }, { user: root }));
 		await measure("admin enrollments_find (email)", () => admin.submit("/enrollments", "enrollments_find", { find: "m3@example.com" }, { user: root }));
+		// One member with 16 enrollments, so Find by name offers Next: page 2 runs Find again (five users
+		// pages) plus the filtered count and page.
+		const zed = (await s.rt.fixtures.user({ email: "zed@example.com", name: "Zed Pager", role: "subscriber" })).id;
+		for (let i = 0; i < 16; i += 1) await s.rt.fixtures.plugin.storage("enrollments", `${zed}:z${i}`, { memberId: zed, courseKey: `z${i}`, courseTitle: "Course Z", startedAt: new Date(Date.UTC(2026, 9, 1, 0, i)).toISOString(), updatedAt: new Date(Date.UTC(2026, 9, 1, 0, i)).toISOString(), completedAt: null, done: [] });
+		const found = (await admin.submit("/enrollments", "enrollments_find", { find: "zed pager" }, { user: root })) as Out;
+		const findNext = found.blocks.find((b: Out) => b.type === "actions").elements.find((e: Out) => e.label === "Next page");
+		expect((await measure("admin enrollments_page (Find by name, page 2)", () => admin.act("/enrollments", "enrollments_page", { value: findNext.value, user: root }))).blocks.find((b: Out) => b.type === "table").rows).toHaveLength(1);
 		await measure("admin page_load /results (15 members)", () => admin.loadPage("/results", { user: root }));
 		await measure("admin widget summary", () => admin.loadWidget("summary", { user: root }));
 		await measure("admin member_menu (asks first)", () => admin.act("/enrollments", "member_menu", { value: JSON.stringify({ m: "ben", n: "Ben" }), user: root }));
