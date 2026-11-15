@@ -42,3 +42,25 @@ export async function saveOutline(ctx: Ctx, course: string, lessons: string[], r
 	const write = await ctx.storage.outlines!.compareAndSet(course, current?.revision ?? null, next);
 	return write.applied ? { ok: true, outline: next } : STALE("outline");
 }
+
+/**
+ * Outlines one scan reads (100 a page): the first 500 courses. Outlines have no index by lesson
+ * (SCOPE keeps one row per course), so finding a lesson's courses is a scan. Shared by the
+ * lesson editor panel and the public lessonCourses route.
+ */
+const OUTLINE_PAGES = 5;
+
+export async function coursesOf(ctx: Ctx, lesson: string): Promise<{ courses: Array<{ id: string; title: string }>; partial: boolean }> {
+	const courses: Array<{ id: string; title: string }> = [];
+	let cursor: string | undefined;
+	for (let page = 0; page < OUTLINE_PAGES; page += 1) {
+		const result = await ctx.storage.outlines!.query({ orderBy: { updatedAt: "desc" }, limit: 100, ...(cursor ? { cursor } : {}) });
+		for (const item of result.items) {
+			const row = item.data as { courseTitle?: string; lessons?: Array<{ id: string }> };
+			if (row.lessons?.some((l) => l.id === lesson)) courses.push({ id: item.id, title: row.courseTitle || "Untitled course" });
+		}
+		if (!result.hasMore || !result.cursor) return { courses, partial: false };
+		cursor = result.cursor;
+	}
+	return { courses, partial: true };
+}

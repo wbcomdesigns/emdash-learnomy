@@ -17,7 +17,8 @@ const CAP = 20;
  * twice), never measured here because the test host runs one call at a time.
  */
 // The public outline reads published lessons 100 a page until it has found every outline lesson:
-// 2 + 15 = 17 at most (a site with 1,500 or more published lessons); measured here on 262.
+// 2 + 15 = 17 at most (a site with 1,500 or more published lessons); measured here on 262. catalog: 1 + 3 + 15 =
+// 19 at most; lessonCourses: 1 + 5 + 10 = 16 at most (the outline scan reads 500 outlines, 5 pages).
 const MEASURED: Record<string, number> = {
 	"route outline (200 lessons, 262 published on the site)": 5,
 	"route quiz (20 questions)": 2,
@@ -68,7 +69,8 @@ const MEASURED: Record<string, number> = {
 	"admin page_load /quizzes (opened from the lesson panel)": 4,
 	"panel open_quiz": 1,
 	"tool saveQuiz (new, on a lesson)": 3,
-	"route catalog (24 courses)": 1,
+	"route catalog (24 courses)": 5,
+	"route lessonCourses (600 outlines)": 7,
 	"route progress": 1,
 	"route myCourses (50 enrollments)": 2,
 	"hook page:metadata (200 lessons, 262 published on the site)": 5,
@@ -129,6 +131,8 @@ describe("bridge calls per entry point, worst case", () => {
 		await measure("route submitQuiz (20 questions)", () => s.post("submitQuiz", { quiz: "q20", answers: Array(20).fill(2) }, ana));
 		const ids = [course, ...Array.from({ length: 23 }, (_, i) => `other-${i}`)].join(",");
 		expect((await measure("route catalog (24 courses)", () => s.get("catalog", { courses: ids }))).counts[course]).toBe(200);
+		const holders = await measure("route lessonCourses (600 outlines)", () => s.get("lessonCourses", { lesson: lessons[0]!.id }));
+		expect(holders.courses).toHaveLength(1);
 		await measure("route progress", () => s.get("progress", { course }, ana));
 		await measure("route myCourses (50 enrollments)", () => s.get("myCourses", {}, member("ben")));
 		const page = { url: "https://site.test/courses/a", title: "A", description: null, canonical: null, image: null, content: { collection: "lms_courses", id: course, slug: "a" } };

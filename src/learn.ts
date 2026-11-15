@@ -10,10 +10,11 @@ import {
 	submitInput,
 	type Attempt,
 	type Enrollment,
+	type Outline,
 	type Quiz,
 } from "./schemas";
 import { BAD_INPUT, type Ctx, fail, nowIso, parse, titleOf } from "./lib/common";
-import { getOutline as loadOutline } from "./lib/outlines";
+import { coursesOf, getOutline as loadOutline } from "./lib/outlines";
 import { asRecord, asString } from "./util";
 
 type RouteCtx = { input: unknown; user?: { id: string } };
@@ -35,31 +36,52 @@ const published = async (ctx: Ctx, collection: string, id: string) =>
 
 /** Published lessons a public outline scan reads, 100 a page: the first 1,500 published lessons of a site. */
 const LESSON_PAGES = 15;
+/** Published courses the catalog scan reads: the first 300. lessonCourses reads up to 1,000. */
+const CATALOG_COURSE_PAGES = 3;
+const LESSON_COURSE_PAGES = 10;
+
+type Item = { id: string; slug: string | null; data: unknown };
+
+/**
+ * The published entries of a collection among `wanted`, read 100 a page from the published list and
+ * stopping once every wanted id is found or after `pages` pages. One page on most sites.
+ * ponytail: an entry past the last page read counts as not published (hidden, never leaked); an
+ * index of published entries is the upgrade if a site gets that big.
+ */
+async function findPublished(ctx: Ctx, collection: string, wanted: Set<string>, pages: number): Promise<Map<string, Item>> {
+	const found = new Map<string, Item>();
+	let cursor: string | undefined;
+	for (let page = 0; page < pages && found.size < wanted.size; page += 1) {
+		const result = await ctx.content!.list(collection, { where: { status: "published" }, limit: 100, ...(cursor ? { cursor } : {}) });
+		for (const item of result.items) if (wanted.has(item.id)) found.set(item.id, item);
+		if (!result.hasMore || !result.cursor) break;
+		cursor = result.cursor;
+	}
+	return found;
+}
 
 export type OutlineLesson = { id: string; title: string; slug: string };
 
+/** An outline's lessons that are published, in outline order, with title and slug. */
+function liveLessons(row: Outline | null, found: Map<string, Item>): OutlineLesson[] {
+	return (row?.lessons ?? [])
+		.filter((lesson) => found.has(lesson.id))
+		.map((lesson) => {
+			const item = found.get(lesson.id)!;
+			return { id: lesson.id, title: titleOf(item, "Untitled lesson"), slug: item.slug ?? item.id };
+		});
+}
+
 /**
  * A published course's lessons in outline order, published lessons only, so a draft course or a draft
- * lesson title never leaves the site. Lesson status comes from the published lessons list, 100 a page,
- * stopping once every outline lesson is found: one page on most sites, 17 calls at most. null for a
- * course that is not published. Shared by the
- * public outline route and the course structured data (page:metadata).
- * ponytail: a site with more than 1,500 published lessons may hide an outline lesson the scan did not
- * reach (hidden, never leaked); an index of published lessons is the upgrade if a site gets there.
+ * lesson title never leaves the site. 17 calls at most, 3 on most sites. null for a course that is not
+ * published. Shared by the public outline route and the course structured data (page:metadata).
  */
 export async function publishedOutline(ctx: Ctx, course: string): Promise<OutlineLesson[] | null> {
 	const [live, row] = await Promise.all([published(ctx, "lms_courses", course), loadOutline(ctx, course)]);
 	if (!live) return null;
-	const wanted = new Set((row?.lessons ?? []).map((lesson) => lesson.id));
-	const found = new Map<string, { title: string; slug: string }>();
-	let cursor: string | undefined;
-	for (let page = 0; page < LESSON_PAGES && found.size < wanted.size; page += 1) {
-		const result = await ctx.content!.list("lms_lessons", { where: { status: "published" }, limit: 100, ...(cursor ? { cursor } : {}) });
-		for (const item of result.items) if (wanted.has(item.id)) found.set(item.id, { title: titleOf(item, "Untitled lesson"), slug: item.slug ?? item.id });
-		if (!result.hasMore || !result.cursor) break;
-		cursor = result.cursor;
-	}
-	return (row?.lessons ?? []).filter((lesson) => found.has(lesson.id)).map((lesson) => ({ id: lesson.id, ...found.get(lesson.id)! }));
+	const found = await findPublished(ctx, "lms_lessons", new Set((row?.lessons ?? []).map((lesson) => lesson.id)), LESSON_PAGES);
+	return liveLessons(row, found);
 }
 
 /** Public. A published course's published lessons in outline order, with the slug the kit links to. */
@@ -70,18 +92,46 @@ export async function outline(routeCtx: RouteCtx, ctx: Ctx) {
 }
 
 /**
- * Public. Lesson counts for the catalog cards, one storage read for up to 24 courses. A count is the
- * outline's length, the same lessons completeLesson counts toward finishing; no title or id leaves.
+ * Public. Lesson counts for the catalog cards, up to 24 courses: the published lessons in each
+ * published course's outline, the same lessons the outline route shows. A course that is not
+ * published gets 0. Calls: the outlines in one read beside the published courses (3 pages at most),
+ * then the published lessons (15 pages at most): 19 at most, 3 on most sites.
  */
 export async function catalog(routeCtx: RouteCtx, ctx: Ctx) {
 	const input = parse(catalogInput, routeCtx.input);
 	if (!input) return BAD_INPUT;
 	const ids = [...new Set(input.courses.split(",").map((id) => id.trim()).filter(Boolean))];
 	if (ids.length > MAX_CATALOG) return BAD_INPUT;
-	const rows = ids.length ? await ctx.storage.outlines!.getMany(ids) : new Map();
-	const counts: Record<string, number> = {};
-	for (const id of ids) counts[id] = parse(outlineSchema, rows.get(id))?.lessons.length ?? 0;
+	const counts: Record<string, number> = Object.fromEntries(ids.map((id) => [id, 0]));
+	if (!ids.length) return { ok: true, counts };
+	const [rows, courses] = await Promise.all([ctx.storage.outlines!.getMany(ids), findPublished(ctx, "lms_courses", new Set(ids), CATALOG_COURSE_PAGES)]);
+	const outlines = new Map(ids.filter((id) => courses.has(id)).map((id) => [id, parse(outlineSchema, rows.get(id))]));
+	const wanted = new Set([...outlines.values()].flatMap((row) => (row?.lessons ?? []).map((lesson) => lesson.id)));
+	const found = wanted.size ? await findPublished(ctx, "lms_lessons", wanted, LESSON_PAGES) : new Map();
+	for (const [id, row] of outlines) counts[id] = liveLessons(row, found).length;
 	return { ok: true, counts };
+}
+
+/**
+ * Public. The published courses a published lesson is in, Open ones first, so a lesson page reached
+ * without ?course= (search, sitemap, EmDash's own links) can pick its course. Calls: the lesson
+ * beside the outline scan (5 pages at most), then the published courses (10 pages at most): 16.
+ */
+export async function lessonCourses(routeCtx: RouteCtx, ctx: Ctx) {
+	const input = parse(lessonQuizInput, routeCtx.input);
+	if (!input) return BAD_INPUT;
+	const [live, { courses }] = await Promise.all([published(ctx, "lms_lessons", input.lesson), coursesOf(ctx, input.lesson)]);
+	if (!live || !courses.length) return { ok: true, courses: [] };
+	const found = await findPublished(ctx, "lms_courses", new Set(courses.map((c) => c.id)), LESSON_COURSE_PAGES);
+	const list = courses
+		.filter((c) => found.has(c.id))
+		.map((c) => {
+			const item = found.get(c.id)!;
+			const access = asRecord(item.data).access === "open" ? "open" : "members";
+			return { id: c.id, slug: item.slug ?? c.id, title: titleOf(item, "Untitled course"), access };
+		});
+	list.sort((a, b) => Number(b.access === "open") - Number(a.access === "open"));
+	return { ok: true, courses: list };
 }
 
 /** Member. The signed-in member's enrollment in one course, or null. One call. */

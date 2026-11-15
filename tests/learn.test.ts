@@ -100,6 +100,39 @@ describe("kit reads: catalog, progress, myCourses", () => {
 		expect((await s.get("catalog", { courses: many })).error?.code).toBe("INVALID_INPUT");
 	});
 
+	it("catalog counts only published lessons and gives 0 for a course that is not published", async () => {
+		const s = await open();
+		const a = await courseWithOutline(s, 2, "Course A");
+		const hidden = await s.entry("lms_lessons", "Draft lesson", "draft");
+		const row = await s.rt.inspect.storage.get<Record<string, unknown>>("outlines", a.course);
+		await s.rt.fixtures.plugin.storage("outlines", a.course, { ...row, lessons: [...a.lessons, { id: hidden, title: "Draft lesson" }] });
+		const draft = await s.entry("lms_courses", "Draft course", "draft");
+		const lesson = await s.entry("lms_lessons", "Published lesson");
+		await s.rt.fixtures.plugin.storage("outlines", draft, { courseKey: draft, courseTitle: "Draft course", lessons: [{ id: lesson, title: "Published lesson" }], updatedAt: "2026-11-15T00:00:00.000Z", rev: "r" });
+		expect((await s.get("catalog", { courses: `${a.course},${draft}` })).counts).toEqual({ [a.course]: 2, [draft]: 0 });
+	});
+
+	it("lessonCourses lists the published courses holding a published lesson, Open first, and nothing for a draft lesson", async () => {
+		const s = await open();
+		const course = async (title: string, access: string, status = "published") =>
+			(await s.rt.fixtures.content("lms_courses", { data: { title, access }, slug: title.toLowerCase().replaceAll(" ", "-"), status } as never)).id as string;
+		const members = await course("Members course", "members");
+		const openId = await course("Open course", "open");
+		const draft = await course("Draft course", "open", "draft");
+		const lesson = { id: await s.entry("lms_lessons", "Shared lesson"), title: "Shared lesson" };
+		const hidden = { id: await s.entry("lms_lessons", "Draft lesson", "draft"), title: "Draft lesson" };
+		for (const id of [members, openId, draft]) {
+			await s.rt.fixtures.plugin.storage("outlines", id, { courseKey: id, courseTitle: "x", lessons: [lesson, hidden], updatedAt: "2026-11-15T00:00:00.000Z", rev: "r" });
+		}
+		const out = (await s.get("lessonCourses", { lesson: lesson.id })).courses as Array<Record<string, string>>;
+		expect(out).toEqual([
+			{ id: openId, slug: "open-course", title: "Open course", access: "open" },
+			{ id: members, slug: "members-course", title: "Members course", access: "members" },
+		]);
+		expect(await s.get("lessonCourses", { lesson: hidden.id })).toEqual({ ok: true, courses: [] });
+		expect(await s.get("lessonCourses", { lesson: "nope" })).toEqual({ ok: true, courses: [] });
+	});
+
 	it("progress answers the member's own enrollment or null; myCourses lists theirs with progress and the course slug", async () => {
 		const s = await open();
 		const a = await courseWithOutline(s, 3, "Course A");

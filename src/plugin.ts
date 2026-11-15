@@ -1,7 +1,7 @@
 import type { RouteEntry, SandboxedPlugin } from "emdash/plugin";
 
 import { handleAdmin } from "./admin";
-import { catalog, completeLesson, courseGraph, enroll, eraseMember, myCourses, outline, progress, quiz, submitQuiz } from "./learn";
+import { catalog, completeLesson, courseGraph, enroll, eraseMember, lessonCourses, myCourses, outline, progress, quiz, submitQuiz } from "./learn";
 import { handlePanel } from "./panel";
 import { mcpTools, toolRoutes } from "./tools";
 
@@ -24,6 +24,7 @@ const plugin: SandboxedPlugin = {
 		health: { public: true, methods: ["GET"], handler: async (_routeCtx, ctx) => ({ ok: true, plugin: ctx.plugin.id, version: ctx.plugin.version }) },
 		outline: { public: true, methods: ["GET"], handler: async (routeCtx, ctx) => outline(routeCtx, ctx) },
 		catalog: { public: true, methods: ["GET"], handler: async (routeCtx, ctx) => catalog(routeCtx, ctx) },
+		lessonCourses: { public: true, methods: ["GET"], handler: async (routeCtx, ctx) => lessonCourses(routeCtx, ctx) },
 		progress: { permission: MEMBER, methods: ["GET"], handler: async (routeCtx, ctx) => progress(routeCtx, ctx) },
 		myCourses: { permission: MEMBER, methods: ["GET"], handler: async (routeCtx, ctx) => myCourses(routeCtx, ctx) },
 		quiz: { public: true, methods: ["GET"], handler: async (routeCtx, ctx) => quiz(routeCtx, ctx) },

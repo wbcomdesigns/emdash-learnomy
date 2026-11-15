@@ -51,6 +51,14 @@ for example `.learnomy { --learnomy-brand: #0f766e; }`. Change any wording in
 `src/lib/learnomy-strings.ts`. Every element carries a `data-learnomy-*` attribute for your own CSS
 and scripts.
 
+Button text uses `--learnomy-on-brand`, the colour on top of `--learnomy-brand`. The kit takes both
+from your theme. Known case: the EmDash portfolio template's dark mode pairs a light purple with white
+text, under AA contrast. Fix it in one line in `src/styles/theme.css`:
+
+```css
+.learnomy { --learnomy-on-brand: light-dark(#ffffff, #1e1033); }
+```
+
 ## Members courses
 
 A Members course's lesson pages carry only the lesson title in their HTML. The text is loaded in

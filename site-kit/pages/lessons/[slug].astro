@@ -1,6 +1,7 @@
 ---
 /*
- * Learnomy lesson page. The course comes from ?course= (a lesson can sit in several courses).
+ * Learnomy lesson page. The course comes from ?course= (a lesson can sit in several courses), or
+ * from the lessonCourses route when the link has none.
  * An Open course's lesson is rendered in full here. Otherwise only the title reaches the page HTML:
  * the body is loaded in the browser from EmDash's content API, which answers signed-in members and
  * refuses guests, so a Members lesson never appears in the page source, a cached page or the meta tags.
@@ -21,7 +22,13 @@ if (Astro.cache?.enabled) Astro.cache.set(cacheHint);
 
 const lessonId = lesson.data.id as string;
 const title = String(lesson.data.title || "");
-const courseParam = decodeSlug(Astro.url.searchParams.get("course") ?? "") || "";
+// Without ?course= (search, sitemap, EmDash's own links) the plugin names the published courses
+// holding this lesson, Open ones first, and the page uses the first.
+let courseParam = decodeSlug(Astro.url.searchParams.get("course") ?? "") || "";
+if (!courseParam) {
+	const holders = await callPluginRoute(Astro.locals, PLUGIN, `lessonCourses?lesson=${encodeURIComponent(lessonId)}`);
+	courseParam = holders.ok ? String((holders.courses as Array<{ slug: string }>)[0]?.slug ?? "") : "";
+}
 const course = courseParam ? (await getEmDashEntry("lms_courses", courseParam)).entry : null;
 const courseId = course ? (course.data.id as string) : "";
 const outline = course ? await callPluginRoute(Astro.locals, PLUGIN, `outline?course=${encodeURIComponent(courseId)}`) : null;

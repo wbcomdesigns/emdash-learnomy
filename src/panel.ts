@@ -1,30 +1,10 @@
 import { openKey, openQuizKey, type BlockResponse } from "./admin";
+import { coursesOf } from "./lib/outlines";
 import { quizForLesson } from "./lib/quizzes";
 import { type Ctx } from "./lib/common";
 import { asRecord, asString } from "./util";
 
 type RouteCtx = { input: unknown; ui?: { entry?: { collection: string; id: string } }; user?: { id: string } };
-
-/**
- * Outlines one panel load reads (100 a page): the first 500 courses. Outlines have no index by lesson
- * (SCOPE keeps one row per course), so finding a lesson's courses is a scan.
- */
-const OUTLINE_PAGES = 5;
-
-async function coursesOf(ctx: Ctx, lesson: string): Promise<{ courses: Array<{ id: string; title: string }>; partial: boolean }> {
-	const courses: Array<{ id: string; title: string }> = [];
-	let cursor: string | undefined;
-	for (let page = 0; page < OUTLINE_PAGES; page += 1) {
-		const result = await ctx.storage.outlines!.query({ orderBy: { updatedAt: "desc" }, limit: 100, ...(cursor ? { cursor } : {}) });
-		for (const item of result.items) {
-			const row = item.data as { courseTitle?: string; lessons?: Array<{ id: string }> };
-			if (row.lessons?.some((l) => l.id === lesson)) courses.push({ id: item.id, title: row.courseTitle || "Untitled course" });
-		}
-		if (!result.hasMore || !result.cursor) return { courses, partial: false };
-		cursor = result.cursor;
-	}
-	return { courses, partial: true };
-}
 
 /** The lesson editor panel: the courses this lesson is in, each opening its outline, and the lesson's quiz. */
 export async function handlePanel(routeCtx: RouteCtx, ctx: Ctx): Promise<BlockResponse> {
