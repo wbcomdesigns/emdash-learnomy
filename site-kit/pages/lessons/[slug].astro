@@ -181,8 +181,11 @@ const check = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke
 	import { portableTextToHtml, PLUGIN, progressOn, type Enrollment, type Lesson } from "../../lib/learnomy";
 	import { S } from "../../lib/learnomy-strings";
 
-	type Question = { type: "choice" | "true_false"; prompt: string; answers?: string[] };
-	type Quiz = { id: string; title: string; questions: Question[] };
+	type Question = { type: "choice" | "true_false" | "multi" | "short" | "blank"; prompt: string; answers?: string[] };
+	type Quiz = { id: string; title: string; mode: "graded" | "practice"; passMark?: number; questions: Question[] };
+	/** The member's standing on the quiz, computed by the plugin: attempts, best percent, pass, retake limits. */
+	type Mine = { attempts: number; best: number | null; passed: boolean | null; attemptsLeft: number | null; retryAt: string | null };
+	type Review = { correct: number | number[] | string[]; explain?: string };
 
 	const root = document.querySelector<HTMLElement>("[data-learnomy-lesson]");
 	if (root) {
@@ -221,6 +224,7 @@ const check = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke
 			const paint = (enrollment: Enrollment) => {
 				const done = enrollment?.done ?? [];
 				markDone(done);
+				lessonDone = done.includes(lessonId);
 				if (done.includes(lessonId)) {
 					actions.innerHTML = `<span class="learnomy-badge learnomy-badge--done" data-learnomy-completed>${esc(S.lesson.completed)}</span>`;
 					return;
@@ -235,7 +239,7 @@ const check = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke
 						button.removeAttribute("aria-busy");
 						button.textContent = S.lesson.markComplete;
 						status.dataset.tone = "error";
-						status.textContent = out.error?.message || S.common.failed;
+						status.textContent = out.error?.code === "QUIZ_NOT_PASSED" ? S.quiz.notPassedComplete : out.error?.message || S.common.failed;
 						return;
 					}
 					const row = out.enrollment as NonNullable<Enrollment>;
@@ -246,7 +250,10 @@ const check = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke
 					root.querySelector<HTMLAnchorElement>("[data-learnomy-next]")?.focus();
 				});
 			};
-			if (result.ok && result.enrollment) return paint(result.enrollment as Enrollment);
+			if (result.ok && result.enrollment) {
+				paint(result.enrollment as Enrollment);
+				return showPassFirst();
+			}
 			if (result.ok) {
 				status.textContent = S.lesson.enrollToTrack;
 				actions.innerHTML = `<button class="learnomy-btn learnomy-btn--quiet" type="button" data-learnomy-enroll>${esc(S.course.enroll)}</button>`;
@@ -257,7 +264,8 @@ const check = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke
 					if (out.ok || out.error?.code === "ALREADY_ENROLLED") {
 						status.textContent = S.course.enrolled;
 						const again = await api(PLUGIN, `progress?course=${encodeURIComponent(course)}`);
-						return paint((again.enrollment as Enrollment) ?? { done: [], completedAt: null });
+						paint((again.enrollment as Enrollment) ?? { done: [], completedAt: null });
+						return showPassFirst();
 					}
 					button.removeAttribute("aria-busy");
 					status.dataset.tone = "error";
@@ -273,38 +281,107 @@ const check = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke
 			status.textContent = result.error?.message || S.common.failed;
 		}
 
+		/* Whether the member still has to pass this lesson's quiz before Mark complete is accepted. */
+		let mustPass = false;
+		let lessonDone = false;
+		function showPassFirst() {
+			const status = completeBox?.querySelector<HTMLElement>("[data-learnomy-complete-status]");
+			if (!status || !completeBox?.querySelector("[data-learnomy-mark]")) return;
+			if (mustPass && !lessonDone) {
+				status.dataset.tone = "";
+				status.textContent = S.lesson.passFirst;
+			} else if (status.textContent === S.lesson.passFirst || status.textContent === S.quiz.notPassedComplete) status.textContent = "";
+		}
+
 		/* Quiz: one fieldset per question; results only after the server scores it. */
 		const quizBox = root.querySelector<HTMLElement>("[data-learnomy-quiz]")!;
 		const quizBody = quizBox.querySelector<HTMLElement>("[data-learnomy-quiz-body]")!;
+		const when = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+
+		function inputsHtml(q: Question, i: number): string {
+			if (q.type === "short" || q.type === "blank") {
+				const label = q.type === "blank" ? S.quiz.blankLabel : S.quiz.yourAnswer;
+				return `<label class="learnomy-field" data-learnomy-text-answer><span>${esc(label)}</span><input type="text" name="q${i}" maxlength="200" autocomplete="off" spellcheck="false"></label>`;
+			}
+			const multi = q.type === "multi";
+			const answers = q.type === "true_false" ? [S.quiz.trueLabel, S.quiz.falseLabel] : (q.answers ?? []);
+			const hint = multi ? `<p class="learnomy-muted learnomy-q__hint" id="learnomy-q${i}-hint">${esc(S.quiz.pickAll)}</p>` : "";
+			return (
+				hint +
+				answers
+					.map((answer, a) => `<label class="learnomy-choice" data-learnomy-choice><input type="${multi ? "checkbox" : "radio"}" name="q${i}" value="${a}"${multi ? ` aria-describedby="learnomy-q${i}-hint"` : ""}> <span>${esc(answer)}</span></label>`)
+					.join("")
+			);
+		}
+
+		/** A fill-in-the-blank prompt shows its blank as a line; screen readers hear the label of the box instead. */
+		const promptHtml = (q: Question) =>
+			q.type === "blank" ? q.prompt.split("___").map(esc).join(`<span class="learnomy-blank" aria-hidden="true"></span><span class="learnomy-sr">${esc(S.quiz.blankLabel)}</span>`) : esc(q.prompt);
+
 		function quizHtml(quiz: Quiz): string {
 			const fields = quiz.questions
-				.map((q, i) => {
-					const answers = q.type === "choice" ? (q.answers ?? []) : [S.quiz.trueLabel, S.quiz.falseLabel];
-					const choices = answers
-						.map((answer, a) => `<label class="learnomy-choice" data-learnomy-choice><input type="radio" name="q${i}" value="${a}" required> <span>${esc(answer)}</span></label>`)
-						.join("");
-					return `<fieldset class="learnomy-q" data-learnomy-question="${i}"><legend><span class="learnomy-q__num">${esc(S.question(i + 1))}</span>${esc(q.prompt)}</legend>${choices}<p class="learnomy-q__result" data-learnomy-question-result></p></fieldset>`;
-				})
+				.map(
+					(q, i) =>
+						`<fieldset class="learnomy-q" data-learnomy-question="${i}" data-learnomy-question-type="${esc(q.type)}"><legend><span class="learnomy-q__num">${esc(S.question(i + 1))}</span>${promptHtml(q)}</legend>${inputsHtml(q, i)}<p class="learnomy-q__result" data-learnomy-question-result></p><div class="learnomy-q__review" data-learnomy-question-review hidden></div></fieldset>`,
+				)
 				.join("");
-			return `<p class="learnomy-muted" data-learnomy-quiz-title><strong>${esc(quiz.title)}</strong></p><form novalidate data-learnomy-quiz-form>${fields}<div class="learnomy-score" role="status" aria-live="polite" data-learnomy-score hidden></div><p class="learnomy-status" role="alert" data-learnomy-quiz-status></p><div class="learnomy-actions"><button class="learnomy-btn" type="submit" data-learnomy-quiz-submit>${esc(S.quiz.submit)}</button></div></form>`;
+			return `<p class="learnomy-muted" data-learnomy-quiz-title><strong>${esc(quiz.title)}</strong></p><p class="learnomy-quiz__info" data-learnomy-quiz-info></p><form novalidate data-learnomy-quiz-form>${fields}<div class="learnomy-score" role="status" aria-live="polite" data-learnomy-score hidden></div><p class="learnomy-status" role="alert" data-learnomy-quiz-status></p><div class="learnomy-actions"><button class="learnomy-btn" type="submit" data-learnomy-quiz-submit>${esc(S.quiz.submit)}</button></div></form>`;
+		}
+
+		/** The lines above the questions: practice or pass mark, then the member's best, attempts left and retry time. */
+		function infoText(quiz: Quiz, mine: Mine | null): string {
+			const parts = [quiz.mode === "practice" ? S.quiz.practice : quiz.passMark ? S.passMark(quiz.passMark) : ""];
+			if (mine?.best !== null && mine?.best !== undefined && mine.attempts > 0) {
+				parts.push(`${S.best(mine.best)}${mine.passed === true ? ` ${S.quiz.passed}.` : mine.passed === false ? ` ${S.quiz.notPassed}.` : ""}`);
+			}
+			if (mine?.attemptsLeft === 0) parts.push(S.quiz.noAttemptsLeft);
+			else if (mine && mine.attemptsLeft !== null) parts.push(S.attemptsLeft(mine.attemptsLeft));
+			if (mine?.retryAt) parts.push(S.retryAt(when(mine.retryAt)));
+			return parts.filter(Boolean).join(" ");
+		}
+
+		/** The right answer of one question as words, for a practice quiz's review. */
+		function rightText(q: Question, review: Review): string {
+			const answers = q.type === "true_false" ? [S.quiz.trueLabel, S.quiz.falseLabel] : (q.answers ?? []);
+			if (q.type === "short" || q.type === "blank") return (review.correct as string[]).join(" / ");
+			const picks = Array.isArray(review.correct) ? (review.correct as number[]) : [review.correct as number];
+			return picks.map((i) => answers[i] ?? "").join(", ");
+		}
+
+		function answerOf(form: HTMLFormElement, q: Question, i: number): number | number[] | string | undefined {
+			if (q.type === "short" || q.type === "blank") return form.querySelector<HTMLInputElement>(`input[name="q${i}"]`)?.value.trim() || undefined;
+			const picked = [...form.querySelectorAll<HTMLInputElement>(`input[name="q${i}"]:checked`)].map((input) => Number(input.value));
+			if (!picked.length) return undefined;
+			return q.type === "multi" ? picked : picked[0];
 		}
 
 		async function loadQuiz() {
 			quizBox.hidden = false;
-			// Guests may read the quiz of an Open lesson; a Members lesson's quiz is for signed-in members.
-			const route = root!.dataset.learnomyOpen === "1" ? "quiz" : "memberQuiz";
-			const result = await api(PLUGIN, `${route}?lesson=${encodeURIComponent(lessonId)}`);
+			// Signed-in members get their standing from memberQuiz; a guest may read an Open lesson's quiz.
+			let result = await api(PLUGIN, `memberQuiz?lesson=${encodeURIComponent(lessonId)}`);
+			if (result.error?.code === "SIGN_IN_REQUIRED" && root!.dataset.learnomyOpen === "1") result = await api(PLUGIN, `quiz?lesson=${encodeURIComponent(lessonId)}`);
 			if (!result.ok) {
 				const none = result.error?.code === "QUIZ_NOT_FOUND";
 				quizBody.innerHTML = `<p class="${none ? "learnomy-muted" : "learnomy-status"}" ${none ? "data-learnomy-quiz-none" : 'data-tone="error" data-learnomy-quiz-failed'}>${esc(none ? S.quiz.none : result.error?.message || S.quiz.failed)}</p>`;
 				return;
 			}
 			const quiz = result.quiz as Quiz;
+			let mine = (result.mine as Mine | undefined) ?? null;
 			quizBody.innerHTML = quizHtml(quiz);
 			const form = quizBody.querySelector<HTMLFormElement>("form")!;
+			const info = quizBody.querySelector<HTMLElement>("[data-learnomy-quiz-info]")!;
 			const status = form.querySelector<HTMLElement>("[data-learnomy-quiz-status]")!;
 			const score = form.querySelector<HTMLElement>("[data-learnomy-score]")!;
 			const submit = form.querySelector<HTMLButtonElement>("[data-learnomy-quiz-submit]")!;
+			const standing = () => {
+				info.textContent = infoText(quiz, mine);
+				info.hidden = !info.textContent;
+				// Out of attempts: the button goes; waiting: it comes back once the wait is over (on reload).
+				submit.hidden = mine?.attemptsLeft === 0 || Boolean(mine?.retryAt && Date.parse(mine.retryAt) > Date.now());
+				mustPass = Boolean(quiz.mode === "graded" && quiz.passMark && mine && mine.passed === false);
+				showPassFirst();
+			};
+			standing();
 			form.addEventListener("change", () => {
 				form.querySelectorAll<HTMLElement>("[data-learnomy-result]").forEach((field) => delete field.dataset.learnomyResult);
 			});
@@ -312,7 +389,7 @@ const check = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke
 				event.preventDefault();
 				status.textContent = "";
 				status.dataset.tone = "error";
-				const answers = quiz.questions.map((_, i) => form.querySelector<HTMLInputElement>(`input[name="q${i}"]:checked`)?.value);
+				const answers = quiz.questions.map((q, i) => answerOf(form, q, i));
 				const missing = answers.findIndex((answer) => answer === undefined);
 				if (missing >= 0) {
 					status.textContent = S.quiz.answerAll;
@@ -321,25 +398,46 @@ const check = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke
 				}
 				submit.setAttribute("aria-busy", "true");
 				submit.textContent = S.quiz.submitting;
-				const out = await api(PLUGIN, "submitQuiz", { quiz: quiz.id, answers: answers.map(Number) });
+				const out = await api(PLUGIN, "submitQuiz", { quiz: quiz.id, answers });
 				submit.removeAttribute("aria-busy");
 				submit.textContent = S.quiz.submit;
 				if (!out.ok) {
 					// Answers stay where they are.
+					const code = out.error?.code;
 					status.innerHTML =
-						out.error?.code === "SIGN_IN_REQUIRED"
+						code === "SIGN_IN_REQUIRED"
 							? `${esc(S.quiz.signInToSubmit)} <a href="${esc(signInUrl())}">${esc(S.common.signIn)}</a>`
-							: esc(out.error?.code === "FAILED" || out.error?.code === "OFFLINE" ? S.quiz.saveFailed : out.error?.message || S.quiz.saveFailed);
+							: esc(
+									code === "NO_ATTEMPTS_LEFT"
+										? S.quiz.noAttemptsLeft
+										: code === "RETRY_LATER" && typeof out.retryAt === "string"
+											? S.retryAt(when(out.retryAt))
+											: code === "BUSY"
+												? S.quiz.busy
+												: code === "ANSWER_EVERY_QUESTION"
+													? S.quiz.answerAll
+													: code === "FAILED" || code === "OFFLINE"
+														? S.quiz.saveFailed
+														: out.error?.message || S.quiz.saveFailed,
+								);
 					return;
 				}
 				const right = out.right as boolean[];
+				const review = out.review as Review[] | undefined;
 				form.querySelectorAll<HTMLElement>("[data-learnomy-question]").forEach((field, i) => {
 					field.dataset.learnomyResult = right[i] ? "right" : "wrong";
 					field.querySelector("[data-learnomy-question-result]")!.textContent = right[i] ? S.quiz.right : S.quiz.wrong;
+					const box = field.querySelector<HTMLElement>("[data-learnomy-question-review]")!;
+					const item = review?.[i];
+					box.hidden = !item;
+					if (item) box.innerHTML = `<p><strong>${esc(S.quiz.rightAnswer)}</strong> ${esc(rightText(quiz.questions[i]!, item))}</p>${item.explain ? `<p class="learnomy-muted">${esc(item.explain)}</p>` : ""}`;
 				});
+				mine = { attempts: Number(out.attempts), best: out.best as number | null, passed: out.passed as boolean | null, attemptsLeft: out.attemptsLeft as number | null, retryAt: out.retryAt as string | null };
+				const verdict = out.passed === true ? S.quiz.passed : out.passed === false ? S.quiz.notPassed : "";
 				score.hidden = false;
-				score.innerHTML = `<span>${esc(S.scored(Number(out.score), Number(out.total)))}</span><span class="learnomy-muted" style="font-size:0.9rem;font-weight:400">${esc(S.quiz.resubmitHelp)}</span>`;
+				score.innerHTML = `<span>${esc(`${S.scored(Number(out.score), Number(out.total))} ${S.scoredPercent(Number(out.percent))}`)}</span>${verdict ? `<span class="learnomy-badge ${out.passed ? "learnomy-badge--done" : ""}" data-learnomy-quiz-verdict="${out.passed ? "passed" : "not-passed"}">${esc(verdict)}</span>` : ""}<span class="learnomy-muted" style="font-size:0.9rem;font-weight:400">${esc(S.quiz.resubmitHelp)}</span>`;
 				submit.textContent = S.quiz.retry;
+				standing();
 			});
 		}
 
