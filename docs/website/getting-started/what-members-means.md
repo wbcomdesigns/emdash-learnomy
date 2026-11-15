@@ -2,7 +2,7 @@
 
 **Included in Free.**
 
-Every course is either **Open** or **Members**. You choose on the course, in its **Who can read the lessons** field (`open` or `members`).
+Every course is either **Open** or **Members**. You choose on the course, in its **Who can read the lessons** field (`open` or `members`). A course with no value in that field (one made through the API without it, for example) is treated as **Members** on every page, badge and route, so nothing is shown to guests by mistake.
 
 | | Open | Members |
 | --- | --- | --- |

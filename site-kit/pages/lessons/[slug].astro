@@ -9,7 +9,7 @@
 import { decodeSlug, getEmDashEntry } from "emdash";
 import { PortableText } from "emdash/ui";
 import Layout from "../../layouts/LearnomyLayout.astro";
-import { courseHref, lessonHref, PLUGIN, type Lesson } from "../../lib/learnomy";
+import { courseHref, isOpenCourse, lessonHref, PLUGIN, type Lesson } from "../../lib/learnomy";
 import { S } from "../../lib/learnomy-strings";
 import { callPluginRoute } from "../../lib/wbcom-kit";
 import "../../styles/learnomy.css";
@@ -34,7 +34,7 @@ const outline = course ? await callPluginRoute(Astro.locals, PLUGIN, `outline?co
 const lessons = ((outline?.ok ? outline.lessons : []) as Lesson[]) ?? [];
 const index = lessons.findIndex((item) => item.id === lessonId);
 const inCourse = index >= 0;
-const open = inCourse && course?.data.access === "open";
+const open = inCourse && !!course && isOpenCourse(course.data);
 const prev = inCourse ? lessons[index - 1] : undefined;
 const next = inCourse ? lessons[index + 1] : undefined;
 const courseTitle = course ? String(course.data.title || "") : "";

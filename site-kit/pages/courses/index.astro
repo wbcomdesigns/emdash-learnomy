@@ -3,7 +3,7 @@
 import { getEmDashCollection, getTaxonomyTermsWithCacheHint, getTermsForEntries } from "emdash";
 import { Image } from "emdash/ui";
 import Layout from "../../layouts/LearnomyLayout.astro";
-import { courseHref, PLUGIN } from "../../lib/learnomy";
+import { courseHref, isOpenCourse, PLUGIN } from "../../lib/learnomy";
 import { S } from "../../lib/learnomy-strings";
 import { callPluginRoute } from "../../lib/wbcom-kit";
 import "../../styles/learnomy.css";
@@ -88,7 +88,7 @@ const title = term ? `${term.label} ${S.catalog.title.toLowerCase()}` : S.catalo
 				<ul class="learnomy-grid" data-learnomy-grid>
 					{courses.map((course, index) => {
 						const id = course.data.id as string;
-						const members = course.data.access === "members";
+						const members = !isOpenCourse(course.data);
 						const count = lessonCount(id);
 						const cat = (categories.get(id) ?? [])[0];
 						const name = String(course.data.title || "");

@@ -7,6 +7,12 @@ export const PLUGIN = "learnomy";
 export type Lesson = { id: string; title: string; slug: string };
 export type Enrollment = { done: string[]; completedAt: string | null } | null;
 
+/**
+ * A course is Open only when its access says "open". A course with no access value (made through the API
+ * or before the field existed) is Members, on every screen, the same rule the plugin's routes use.
+ */
+export const isOpenCourse = (data: { access?: unknown }) => data.access === "open";
+
 export const courseHref = (slug: string) => `/courses/${encodeURIComponent(slug)}`;
 
 /** A lesson page knows its course from ?course=, because one lesson can sit in several courses. */
