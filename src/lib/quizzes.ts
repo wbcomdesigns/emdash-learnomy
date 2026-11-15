@@ -1,4 +1,4 @@
-import { MAX_QUESTIONS, quiz as quizSchema, type Question, type Quiz } from "../schemas";
+import { MAX_ATTEMPTS, MAX_QUESTIONS, MAX_WAIT_MINUTES, quiz as quizSchema, type Question, type Quiz } from "../schemas";
 import { type Ctx, type Fail, fail, newId, newRev, nowIso, parse, STALE } from "./common";
 import { asRecord, asString } from "../util";
 
@@ -13,10 +13,31 @@ export async function getQuiz(ctx: Ctx, id: string): Promise<Quiz | null> {
 export function questionProblem(q: Question): string | null {
 	if (!q.prompt.trim()) return "Write the question first.";
 	if (q.prompt.trim().length > 500) return "Keep the question under 500 characters.";
-	if (q.type === "choice" && q.answers.some((a) => !a.trim())) return "Fill in all four answers.";
-	if (q.type === "choice" && q.answers.some((a) => a.trim().length > 200)) return "Keep each answer under 200 characters.";
+	if ((q.type === "choice" || q.type === "multi") && q.answers.some((a) => !a.trim())) return "Fill in all four answers.";
+	if ((q.type === "choice" || q.type === "multi") && q.answers.some((a) => a.trim().length > 200)) return "Keep each answer under 200 characters.";
+	if (q.type === "multi" && q.correct.length === 0) return "Tick at least one right answer.";
+	if ((q.type === "short" || q.type === "blank") && !q.accepted.some((a) => a.trim())) return "Write at least one accepted answer.";
+	if ((q.type === "short" || q.type === "blank") && q.accepted.length > 10) return "Keep it to 10 accepted answers.";
+	if ((q.type === "short" || q.type === "blank") && q.accepted.some((a) => a.trim().length > 200)) return "Keep each accepted answer under 200 characters.";
+	if (q.type === "blank" && !q.prompt.includes(BLANK)) return `Mark the blank in the question with three underscores (${BLANK}).`;
+	if ((q.explain ?? "").trim().length > 1000) return "Keep the explanation under 1,000 characters.";
 	return null;
 }
+
+/** Where a fill-in-the-blank question puts its answer box. */
+export const BLANK = "___";
+
+/** Plain words for what is wrong with a quiz's pass mark or retake policy, or null. */
+function settingsProblem(quiz: QuizDraft): string | null {
+	const whole = (n: unknown, min: number, max: number) => typeof n === "number" && Number.isInteger(n) && n >= min && n <= max;
+	if (quiz.passMark !== undefined && !whole(quiz.passMark, 1, 100)) return "The pass mark is a whole percent from 1 to 100, or 0 for none.";
+	if (quiz.retake?.type === "max" && !whole(quiz.retake.attempts, 1, MAX_ATTEMPTS)) return `Allow from 1 to ${MAX_ATTEMPTS} attempts.`;
+	if (quiz.retake?.type === "wait" && !whole(quiz.retake.minutes, 1, MAX_WAIT_MINUTES)) return `The wait is from 1 to ${MAX_WAIT_MINUTES} minutes (30 days).`;
+	return null;
+}
+
+/** What a writer hands writeQuiz: a 0.1.x-shaped quiz is fine, mode and retake take their defaults. */
+export type QuizDraft = Omit<Quiz, "updatedAt" | "rev" | "mode" | "retake"> & Partial<Pick<Quiz, "mode" | "retake">>;
 
 /** Plain words for what is wrong with a quiz title, or null. */
 function titleProblem(title: string): string | null {
@@ -79,7 +100,7 @@ export async function writeQuiz(
 	ctx: Ctx,
 	id: string | null,
 	rev: string | undefined,
-	change: (current: Quiz | null) => Omit<Quiz, "updatedAt" | "rev"> | Fail,
+	change: (current: Quiz | null) => QuizDraft | Fail,
 ): Promise<{ ok: true; id: string; quiz: Quiz } | Fail> {
 	const key = id ?? newId();
 	const current = id ? await ctx.storage.quizzes!.getVersioned(id) : null;
@@ -89,7 +110,7 @@ export async function writeQuiz(
 	const changed = change(row);
 	if ("ok" in changed) return changed;
 	if (changed.questions.length > MAX_QUESTIONS) return TOO_MANY;
-	const badTitle = titleProblem(changed.title);
+	const badTitle = titleProblem(changed.title) ?? settingsProblem(changed);
 	if (badTitle) return fail("INVALID_QUIZ", badTitle);
 	for (const q of changed.questions) {
 		const problem = questionProblem(q);
@@ -142,7 +163,7 @@ export async function listQuizzes(ctx: Ctx, cursor?: string) {
 	const page = await ctx.storage.quizzes!.query({ orderBy: { updatedAt: "desc" }, limit: PAGE, ...(cursor ? { cursor } : {}) });
 	const items = page.items.map((item) => {
 		const row = parse(quizSchema, item.data);
-		return { id: item.id, title: row?.title ?? "Quiz that needs fixing", questions: row?.questions.length ?? 0, updatedAt: row?.updatedAt ?? "", rev: row?.rev ?? "" };
+		return { id: item.id, title: row?.title ?? "Quiz that needs fixing", questions: row?.questions.length ?? 0, mode: row?.mode ?? "graded", passMark: row?.passMark ?? null, updatedAt: row?.updatedAt ?? "", rev: row?.rev ?? "" };
 	});
 	return { items, cursor: page.hasMore ? page.cursor : undefined };
 }

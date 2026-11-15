@@ -1,9 +1,9 @@
 import type { Question, Quiz } from "./schemas";
-import { MAX_QUESTIONS } from "./schemas";
+import { MAX_ATTEMPTS, MAX_QUESTIONS, MAX_WAIT_MINUTES } from "./schemas";
 import { type Ctx, type Fail, titleOf } from "./lib/common";
 import { getOutline, saveOutline } from "./lib/outlines";
 import { FIND_MATCHES, listEnrollments, listResults, LIST_PAGE } from "./lib/people";
-import { deleteQuiz, getQuiz, listQuizzes, writeQuiz } from "./lib/quizzes";
+import { BLANK, deleteQuiz, getQuiz, listQuizzes, writeQuiz } from "./lib/quizzes";
 import { eraseRows } from "./learn";
 import { asNumber, asRecord, asString } from "./util";
 
@@ -213,13 +213,73 @@ async function changeOutline(ctx: Ctx, action: string, value: Record<string, unk
 
 /* ---------------- Quizzes ---------------- */
 
-const TYPE_LABEL: Record<Question["type"], string> = { choice: "Multiple choice", true_false: "True or false" };
-const answerText = (q: Question) => (q.type === "choice" ? q.answers[q.correct] ?? "" : q.correct === 0 ? "True" : "False");
+const TYPE_LABEL: Record<Question["type"], string> = {
+	choice: "Multiple choice (one answer)",
+	multi: "Multiple answers (pick all that apply)",
+	true_false: "True or false",
+	short: "Short answer",
+	blank: "Fill in the blank",
+};
+const TYPES = Object.keys(TYPE_LABEL) as Question["type"][];
+const answerText = (q: Question) =>
+	q.type === "choice"
+		? (q.answers[q.correct] ?? "")
+		: q.type === "multi"
+			? q.correct.map((i) => q.answers[i]).join(", ")
+			: q.type === "true_false"
+				? q.correct === 0
+					? "True"
+					: "False"
+				: q.accepted.join(" / ");
+
+/** The quiz's mode, pass mark and retake policy in one plain line. */
+function settingsLine(quiz: Quiz): string {
+	const mode = quiz.mode === "practice" ? "Practice: never blocks progress; members see the right answers and explanations after they submit" : quiz.passMark ? `Graded, pass mark ${quiz.passMark}%: members pass it to complete the lesson` : "Graded, no pass mark: the score never blocks progress";
+	const r = quiz.retake;
+	const retake = r.type === "max" ? `at most ${r.attempts === 1 ? "1 attempt" : `${r.attempts} attempts`}` : r.type === "wait" ? `${r.minutes === 1 ? "1 minute" : `${r.minutes} minutes`} between attempts` : "unlimited attempts";
+	return `${mode}; ${retake}.`;
+}
+
+function settingsForm(id: string, quiz: Quiz): Block {
+	const r = quiz.retake;
+	return {
+		type: "form",
+		block_id: `qs|${id}|${quiz.rev}`,
+		fields: [
+			{ type: "select", action_id: "mode", label: "Mode", options: [{ label: "Graded", value: "graded" }, { label: "Practice (shows right answers, never blocks)", value: "practice" }], initial_value: quiz.mode },
+			{ type: "number_input", action_id: "pass_mark", label: "Pass mark in percent (0 for none; graded quizzes only)", initial_value: quiz.passMark ?? 0, min: 0, max: 100, condition: { field: "mode", eq: "graded" } },
+			{
+				type: "select",
+				action_id: "retake",
+				label: "Retakes",
+				options: [
+					{ label: "Unlimited", value: "unlimited" },
+					{ label: "A maximum number of attempts", value: "max" },
+					{ label: "A wait before each retry", value: "wait" },
+				],
+				initial_value: r.type,
+			},
+			{ type: "number_input", action_id: "attempts", label: "Attempts allowed", initial_value: r.type === "max" ? r.attempts : 3, min: 1, max: MAX_ATTEMPTS, condition: { field: "retake", eq: "max" } },
+			{ type: "number_input", action_id: "minutes", label: "Minutes to wait before a retry", initial_value: r.type === "wait" ? r.minutes : 60, min: 1, max: MAX_WAIT_MINUTES, condition: { field: "retake", eq: "wait" } },
+		],
+		submit: { label: "Save settings", action_id: "quiz_settings" },
+	};
+}
+
+/** Mode, pass mark and retake policy from the settings form. Out-of-range numbers reach writeQuiz, which says what is wrong. */
+function settingsFrom(values: Record<string, unknown>): Pick<Quiz, "mode" | "passMark" | "retake"> {
+	const mode = asString(values.mode) === "practice" ? "practice" : "graded";
+	const mark = asNumber(values.pass_mark) ?? 0;
+	const kind = asString(values.retake);
+	const retake: Quiz["retake"] =
+		kind === "max" ? { type: "max", attempts: asNumber(values.attempts) ?? 0 } : kind === "wait" ? { type: "wait", minutes: asNumber(values.minutes) ?? 0 } : { type: "unlimited" };
+	return { mode, passMark: mode === "graded" && mark !== 0 ? mark : undefined, retake };
+}
 
 async function renderQuizzes(ctx: Ctx, view: View, toast?: Toast): Promise<BlockResponse> {
 	const page = await listQuizzes(ctx, view.at);
 	const rows = page.items.map((quiz) => ({
-		quiz: `${quiz.title} (${quiz.questions === 1 ? "1 question" : `${quiz.questions} questions`})`,
+		quiz: `${quiz.title} (${quiz.questions === 1 ? "1 question" : `${quiz.questions} questions`}${quiz.mode === "practice" ? ", practice" : quiz.passMark ? `, pass mark ${quiz.passMark}%` : ""})`,
 		updated: quiz.updatedAt,
 		open: button("Edit quiz", "quiz_open", { q: quiz.id }),
 	}));
@@ -250,19 +310,37 @@ async function renderQuizzes(ctx: Ctx, view: View, toast?: Toast): Promise<Block
 	};
 }
 
+/**
+ * One question per form. Each kind has its own fields (Block Kit conditions show one kind's fields at a
+ * time and take only eq or neq, so choice and multi answers are separate fields).
+ */
 function questionForm(id: string, quiz: Quiz, index: number | null): Block {
 	const q = index === null ? null : quiz.questions[index] ?? null;
 	const choice = q?.type === "choice" ? q : null;
+	const multi = q?.type === "multi" ? q : null;
 	const options = (labels: string[]) => labels.map((label, i) => ({ label, value: String(i) }));
+	const accepted = (type: "short" | "blank") => ({
+		type: "text_input",
+		action_id: `accepted_${type}`,
+		label: "Accepted answers, one per line (case and extra spaces are ignored)",
+		multiline: true,
+		initial_value: q?.type === type ? q.accepted.join("\n") : "",
+		condition: { field: "type", eq: type },
+	});
 	return {
 		type: "form",
 		block_id: index === null ? `qa|${id}|${quiz.rev}` : `qe|${id}|${quiz.rev}|${index}`,
 		fields: [
-			{ type: "select", action_id: "type", label: "Kind of question", options: [{ label: TYPE_LABEL.choice, value: "choice" }, { label: TYPE_LABEL.true_false, value: "true_false" }], initial_value: q?.type ?? "choice" },
-			{ type: "text_input", action_id: "prompt", label: "Question", multiline: true, initial_value: q?.prompt ?? "" },
+			{ type: "select", action_id: "type", label: "Kind of question", options: TYPES.map((type) => ({ label: TYPE_LABEL[type], value: type })), initial_value: q?.type ?? "choice" },
+			{ type: "text_input", action_id: "prompt", label: `Question (fill in the blank: mark the blank with ${BLANK})`, multiline: true, initial_value: q?.prompt ?? "" },
 			...[0, 1, 2, 3].map((i) => ({ type: "text_input", action_id: `answer_${i}`, label: `Answer ${i + 1}`, initial_value: choice?.answers[i] ?? "", condition: { field: "type", eq: "choice" } })),
 			{ type: "select", action_id: "correct_choice", label: "Correct answer", options: options(["Answer 1", "Answer 2", "Answer 3", "Answer 4"]), initial_value: String(choice?.correct ?? 0), condition: { field: "type", eq: "choice" } },
+			...[0, 1, 2, 3].map((i) => ({ type: "text_input", action_id: `manswer_${i}`, label: `Answer ${i + 1}`, initial_value: multi?.answers[i] ?? "", condition: { field: "type", eq: "multi" } })),
+			{ type: "checkbox", action_id: "correct_multi", label: "Right answers (tick every one)", options: options(["Answer 1", "Answer 2", "Answer 3", "Answer 4"]), initial_value: (multi?.correct ?? []).map(String), condition: { field: "type", eq: "multi" } },
 			{ type: "select", action_id: "correct_tf", label: "Correct answer", options: options(["True", "False"]), initial_value: String(q?.type === "true_false" ? q.correct : 0), condition: { field: "type", eq: "true_false" } },
+			accepted("short"),
+			accepted("blank"),
+			{ type: "text_input", action_id: "explain", label: "Explanation (optional; members see it after a practice quiz)", multiline: true, initial_value: q?.explain ?? "" },
 		],
 		submit: { label: index === null ? "Add question" : "Save question", action_id: index === null ? "question_add" : "question_save" },
 	};
@@ -274,6 +352,7 @@ async function renderQuiz(ctx: Ctx, id: string, quiz: Quiz | null, editing: numb
 	const rows = row.questions.map((q, i) => ({
 		position: i + 1,
 		question: q.prompt,
+		kind: TYPE_LABEL[q.type],
 		answer: answerText(q),
 		change: {
 			type: "menu",
@@ -295,7 +374,8 @@ async function renderQuiz(ctx: Ctx, id: string, quiz: Quiz | null, editing: numb
 	return {
 		blocks: [
 			header(`Quiz: ${row.title}`),
-			note(`${row.questions.length} of ${MAX_QUESTIONS} questions. Visitors never see the correct answers before they submit.`),
+			note(`${row.questions.length} of ${MAX_QUESTIONS} questions. Visitors never see the correct answers before they submit; only a practice quiz shows them, after submitting.`),
+			note(settingsLine(row)),
 			{
 				type: "section",
 				text: lessonLine,
@@ -314,14 +394,16 @@ async function renderQuiz(ctx: Ctx, id: string, quiz: Quiz | null, editing: numb
 				fields: [{ type: "text_input", action_id: "title", label: "Quiz title", initial_value: row.title }],
 				submit: { label: "Save title", action_id: "quiz_title" },
 			},
+			settingsForm(id, row),
 			rows.length === 0
-				? { type: "empty", title: "No questions yet", description: "Add the first question below: multiple choice with four answers, or true or false." }
+				? { type: "empty", title: "No questions yet", description: "Add the first question below: multiple choice, multiple answers, true or false, short answer or fill in the blank." }
 				: {
 						type: "table",
 						page_action_id: "quiz_rows",
 						columns: [
 							{ key: "position", label: "#", format: "number" },
 							{ key: "question", label: "Question" },
+							{ key: "kind", label: "Kind" },
 							{ key: "answer", label: "Correct answer" },
 							{ key: "change", label: "Actions", format: "element" },
 						],
@@ -385,9 +467,19 @@ async function renderQuizLessons(ctx: Ctx, id: string, view: View, toast?: Toast
 
 function questionFrom(values: Record<string, unknown>): Question {
 	const prompt = asString(values.prompt);
-	if (asString(values.type) === "true_false") return { type: "true_false", prompt, correct: asString(values.correct_tf) === "1" ? 1 : 0 };
+	const explain = asString(values.explain);
+	const extra = explain ? { explain } : {};
+	const type = asString(values.type);
+	const lines = (key: string) => asString(values[key]).split("\n").map((line) => line.trim()).filter(Boolean);
+	if (type === "true_false") return { type, prompt, correct: asString(values.correct_tf) === "1" ? 1 : 0, ...extra };
+	if (type === "short" || type === "blank") return { type, prompt, accepted: lines(`accepted_${type}`), ...extra };
+	if (type === "multi") {
+		const ticked = Array.isArray(values.correct_multi) ? values.correct_multi : [];
+		const correct = [...new Set(ticked.map((v) => asNumber(v)).filter((n): n is number => n !== null && n >= 0 && n <= 3))].sort();
+		return { type, prompt, answers: [0, 1, 2, 3].map((i) => asString(values[`manswer_${i}`])), correct, ...extra };
+	}
 	const correct = Math.min(3, Math.max(0, asNumber(values.correct_choice) ?? 0));
-	return { type: "choice", prompt, answers: [0, 1, 2, 3].map((i) => asString(values[`answer_${i}`])), correct };
+	return { type: "choice", prompt, answers: [0, 1, 2, 3].map((i) => asString(values[`answer_${i}`])), correct, ...extra };
 }
 
 async function submitQuizForm(ctx: Ctx, action: string, blockId: string, values: Record<string, unknown>): Promise<BlockResponse> {
@@ -402,6 +494,7 @@ async function submitQuizForm(ctx: Ctx, action: string, blockId: string, values:
 	const result = await writeQuiz(ctx, id, rev, (current) => {
 		const quiz = current!;
 		if (action === "quiz_title") return { ...quiz, title: asString(values.title) };
+		if (action === "quiz_settings") return { ...quiz, ...settingsFrom(values) };
 		const q = questionFrom(values);
 		if (action === "question_add") return { ...quiz, questions: [...quiz.questions, q] };
 		if (!(at >= 0 && at < quiz.questions.length)) return { ok: false, error: { code: "GONE", message: "That question was removed meanwhile." } };
@@ -412,7 +505,7 @@ async function submitQuizForm(ctx: Ctx, action: string, blockId: string, values:
 		const current = await getQuiz(ctx, id);
 		return current ? renderQuiz(ctx, id, current, action === "question_save" ? at : null, failToast(result)) : renderQuizzes(ctx, {}, failToast(result));
 	}
-	const message = action === "quiz_title" ? "Title saved." : action === "question_add" ? `Question ${result.quiz.questions.length} added.` : `Question ${at + 1} saved.`;
+	const message = action === "quiz_title" ? "Title saved." : action === "quiz_settings" ? "Settings saved." : action === "question_add" ? `Question ${result.quiz.questions.length} added.` : `Question ${at + 1} saved.`;
 	return renderQuiz(ctx, id, result.quiz, null, ok(message));
 }
 
@@ -474,7 +567,13 @@ async function renderEnrollments(ctx: Ctx, view: View, toast?: Toast): Promise<B
 
 async function renderResults(ctx: Ctx, view: View, toast?: Toast): Promise<BlockResponse> {
 	const listed = await listResults(ctx, { cursor: view.at, find: view.find });
-	const rows = listed.items.map((a) => ({ member: a.memberName, quiz: `${a.quizTitle}: ${a.score} of ${a.total}, ${dayOf(a.submittedAt)}`, erase: manageMenu(a.memberId, a.memberName, "results") }));
+	const rows = listed.items.map((a) => ({
+		member: a.memberName,
+		quiz: `${a.quizTitle}: ${a.score} of ${a.total}, ${dayOf(a.submittedAt)}`,
+		best: `${a.best}%`,
+		attempts: a.attempts,
+		erase: manageMenu(a.memberId, a.memberName, "results"),
+	}));
 	return {
 		blocks: [
 			header("Quiz results"),
@@ -482,13 +581,15 @@ async function renderResults(ctx: Ctx, view: View, toast?: Toast): Promise<Block
 			rows.length === 0
 				? view.find
 					? { type: "empty", title: "Nothing matches", description: "No quiz result belongs to a member with that name or email." }
-					: { type: "empty", title: "No quiz results yet", description: "A member's latest score on each quiz appears here." }
+					: { type: "empty", title: "No quiz results yet", description: "Each member's latest score, best score and number of attempts on each quiz appear here." }
 				: {
 						type: "table",
 						page_action_id: "results_page",
 						columns: [
 							{ key: "member", label: "Member" },
-							{ key: "quiz", label: "Quiz and score" },
+							{ key: "quiz", label: "Quiz and latest score" },
+							{ key: "best", label: "Best" },
+							{ key: "attempts", label: "Attempts", format: "number" },
 							{ key: "erase", label: "Actions", format: "element" },
 						],
 						rows,
@@ -517,7 +618,7 @@ function askErase(value: Record<string, unknown>): BlockResponse {
 	return {
 		blocks: [
 			header(from.title),
-			{ type: "banner", variant: "alert", title: `Erase ${name}'s Learnomy data?`, description: "Every enrollment and quiz result of this member is deleted. This cannot be undone. Their site account stays." },
+			{ type: "banner", variant: "alert", title: `Erase ${name}'s Learnomy data?`, description: "Every enrollment, quiz result and past attempt of this member is deleted. This cannot be undone. Their site account stays." },
 			actionsRow(button("Erase their data", "member_erase", { m: asString(value.m), n: name, f: asString(value.f) }, "danger"), button("Keep it", from.action, {})),
 		],
 	};

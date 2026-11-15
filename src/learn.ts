@@ -14,6 +14,7 @@ import {
 	type Quiz,
 } from "./schemas";
 import { BAD_INPUT, countProgress, type Ctx, fail, nowIso, parse, titleOf } from "./lib/common";
+import { gates, grade, hasPassed, MAX_HISTORY, percentOf, readAttempt, retakeState, reviewOf } from "./lib/attempts";
 import { coursesOf, getOutline as loadOutline } from "./lib/outlines";
 import { asRecord, asString } from "./util";
 
@@ -39,6 +40,8 @@ const LESSON_PAGES = 15;
 /** Published courses the catalog scan reads: the first 300. lessonCourses reads up to 1,000. */
 const CATALOG_COURSE_PAGES = 3;
 const LESSON_COURSE_PAGES = 10;
+/** completeLesson spends two calls on the lesson's quiz and the member's attempt, so it scans 13. */
+const COMPLETE_LESSON_PAGES = 13;
 
 type Item = { id: string; slug: string | null; data: unknown };
 
@@ -163,36 +166,85 @@ export async function lessonCourses(routeCtx: RouteCtx, ctx: Ctx) {
 	return { ok: true, courses: live ? courses : [] };
 }
 
-/** Member. The signed-in member's enrollment in one course, or null. One call. */
+const attemptId = (memberId: string, quizId: string) => `${memberId}:${quizId}`;
+/** Lesson ids per `in` query, well under D1's 100 bound parameters. */
+const IN_CHUNK = 80;
+
+/**
+ * The quizzes on `lessons` that gate completion (graded, with a pass mark), keyed by lesson, with
+ * whether the member passed each on their best score. Calls: one query per 80 lessons (3 at most for a
+ * 200-lesson outline), then the member's attempts in one read: 4 at most.
+ */
+async function passStates(ctx: Ctx, member: string, lessons: string[]) {
+	const chunks = [];
+	for (let i = 0; i < lessons.length; i += IN_CHUNK) chunks.push(lessons.slice(i, i + IN_CHUNK));
+	const pages = await Promise.all(chunks.map((ids) => ctx.storage.quizzes!.query({ where: { lessonKey: { in: ids } }, limit: 100 })));
+	const graded = pages.flatMap((page) => page.items).flatMap((item) => {
+		const row = parse(quizSchema, item.data);
+		return row && gates(row) ? [{ id: item.id, row }] : [];
+	});
+	if (!graded.length) return {};
+	const attempts = await ctx.storage.attempts!.getMany(graded.map((q) => attemptId(member, q.id)));
+	return Object.fromEntries(
+		graded.map(({ id, row }) => {
+			const attempt = readAttempt(attempts.get(attemptId(member, id)));
+			return [row.lessonKey, { passMark: row.passMark!, best: attempt?.best ?? null, passed: hasPassed(row, attempt) }];
+		}),
+	);
+}
+
+/**
+ * Member. The signed-in member's enrollment in one course, or null, and when enrolled the pass state of
+ * each lesson quiz that has a pass mark (`quizzes`, keyed by lesson). Calls: the enrollment beside the
+ * outline, then passStates: 6 at most, 2 on a course without pass marks.
+ */
 export async function progress(routeCtx: RouteCtx, ctx: Ctx) {
 	const member = routeCtx.user?.id;
 	if (!member) return SIGN_IN;
 	const input = parse(courseInput, routeCtx.input);
 	if (!input) return BAD_INPUT;
-	const row = (await ctx.storage.enrollments!.get(enrollmentId(member, input.course))) as Enrollment | null;
-	return { ok: true, enrollment: row ?? null };
+	const [row, course] = await Promise.all([ctx.storage.enrollments!.get(enrollmentId(member, input.course)) as Promise<Enrollment | null>, loadOutline(ctx, input.course)]);
+	const quizzes = row && course?.lessons.length ? await passStates(ctx, member, course.lessons.map((lesson) => lesson.id)) : {};
+	return { ok: true, enrollment: row ?? null, quizzes };
 }
 
 /** Courses a member sees on Your courses: the most recently active first. */
 const MY_COURSES = 50;
 /** Calls myCourses may spend finding which of the member's courses and lessons are published. */
 const MY_COURSE_PAGES = 3;
-const MY_LESSON_PAGES = 14;
+const MY_LESSON_PAGES = 12;
+/** The member's most recent attempts Your courses reads to count passed quizzes. */
+const MY_ATTEMPTS = 100;
 
 /**
  * Member. The signed-in member's courses with progress, newest activity first. Progress is
  * countProgress against the course's published outline lessons, the same count the course and lesson
  * pages show. A course that is deleted or no longer published comes back with available: false and
  * no link. Calls: the enrollments, their outlines in one read, then the published courses (3 at most)
- * and the published lessons (14 at most): 19 at most, 4 on most sites.
- * ponytail: shows the 50 most recent; a "more" page if members ever take more than 50 courses.
+ * and the published lessons (12 at most), and beside the enrollments the member's latest 100 attempts
+ * with their quizzes in one read: 19 at most, 6 on most sites. quizzesPassed counts the course's
+ * graded quizzes with a pass mark that the member passed.
+ * ponytail: shows the 50 most recent; a "more" page if members ever take more than 50 courses. Counts
+ * passes among the latest 100 attempts; a member with more reads older passes as not counted.
  */
 export async function myCourses(routeCtx: RouteCtx, ctx: Ctx) {
 	const member = routeCtx.user?.id;
 	if (!member) return SIGN_IN;
-	const page = await ctx.storage.enrollments!.query({ where: { memberId: member }, orderBy: { updatedAt: "desc" }, limit: MY_COURSES });
+	const [page, tried] = await Promise.all([
+		ctx.storage.enrollments!.query({ where: { memberId: member }, orderBy: { updatedAt: "desc" }, limit: MY_COURSES }),
+		ctx.storage.attempts!.query({ where: { memberId: member }, orderBy: { submittedAt: "desc" }, limit: MY_ATTEMPTS }),
+	]);
 	const rows = page.items.map((item) => item.data as Enrollment);
 	if (!rows.length) return { ok: true, items: [] };
+	const attempts = tried.items.flatMap((item) => readAttempt(item.data) ?? []);
+	const quizRows = attempts.length ? await ctx.storage.quizzes!.getMany([...new Set(attempts.map((a) => a.quizId))]) : new Map();
+	// Lessons whose graded quiz the member passed on their best score.
+	const passedLessons = new Set(
+		attempts.flatMap((a) => {
+			const row = parse(quizSchema, quizRows.get(a.quizId));
+			return row && gates(row) && hasPassed(row, a) ? [row.lessonKey] : [];
+		}),
+	);
 	const keys = [...new Set(rows.map((row) => row.courseKey))];
 	const [outlines, courses] = await Promise.all([ctx.storage.outlines!.getMany(keys), findPublished(ctx, "lms_courses", new Set(keys), MY_COURSE_PAGES)]);
 	const lessonsOf = new Map(keys.filter((key) => courses.has(key)).map((key) => [key, parse(outlineSchema, outlines.get(key))?.lessons.map((lesson) => lesson.id) ?? []]));
@@ -200,7 +252,8 @@ export async function myCourses(routeCtx: RouteCtx, ctx: Ctx) {
 	const found = wanted.size ? await findPublished(ctx, "lms_lessons", wanted, MY_LESSON_PAGES) : new Map();
 	const items = rows.map((row) => {
 		const course = courses.get(row.courseKey);
-		const counted = countProgress(row.done, (lessonsOf.get(row.courseKey) ?? []).filter((id) => found.has(id)));
+		const live = (lessonsOf.get(row.courseKey) ?? []).filter((id) => found.has(id));
+		const counted = countProgress(row.done, live);
 		return {
 			course: row.courseKey,
 			slug: course ? (course.slug ?? row.courseKey) : "",
@@ -209,6 +262,7 @@ export async function myCourses(routeCtx: RouteCtx, ctx: Ctx) {
 			startedAt: row.startedAt,
 			updatedAt: row.updatedAt,
 			completedAt: row.completedAt,
+			quizzesPassed: live.filter((id) => passedLessons.has(id)).length,
 			...counted,
 		};
 	});
@@ -301,8 +355,11 @@ export async function enroll(routeCtx: RouteCtx, ctx: Ctx) {
  * in the course outline. Sets completedAt, once, when every published lesson in the outline is done:
  * a draft, scheduled or deleted lesson in the outline does not hold the course open. completedAt is
  * the first finish; screens show finished from countProgress, so a lesson added later reads as one
- * more to do. Calls: the outline, the status of the outline lessons not yet done (15 at most, none
- * when all are done), then getVersioned and compareAndSet, twice at most: 20 at most, 4 on most sites.
+ * more to do. A lesson whose quiz is graded with a pass mark is refused until the member's best
+ * attempt meets it (practice quizzes never block); a lesson already done stays done. Calls: the outline
+ * beside the lesson's quiz, the member's attempt when that quiz has a pass mark, the status of the
+ * outline lessons not yet done (13 at most, none when all are done), then getVersioned and
+ * compareAndSet, twice at most: 20 at most, 4 on most sites.
  */
 export async function completeLesson(routeCtx: RouteCtx, ctx: Ctx) {
 	const member = routeCtx.user?.id;
@@ -310,10 +367,12 @@ export async function completeLesson(routeCtx: RouteCtx, ctx: Ctx) {
 	const input = parse(lessonInput, routeCtx.input);
 	if (!input) return BAD_INPUT;
 	const key = enrollmentId(member, input.course);
-	const course = await loadOutline(ctx, input.course);
+	const [course, quizPage] = await Promise.all([loadOutline(ctx, input.course), ctx.storage.quizzes!.query({ where: { lessonKey: input.lesson }, limit: 1 })]);
 	if (!course?.lessons.some((lesson) => lesson.id === input.lesson)) {
 		return fail("LESSON_NOT_IN_COURSE", "That lesson is not part of this course.");
 	}
+	const gate = quizPage.items[0] ? parse(quizSchema, quizPage.items[0].data) : null;
+	const mustPass = gate && gates(gate) && !hasPassed(gate, readAttempt(await ctx.storage.attempts!.get(attemptId(member, quizPage.items[0]!.id)))) ? gate : null;
 	// Published status of the outline lessons left to do, looked up once: a retry only has fewer left.
 	let live: Awaited<ReturnType<typeof findPublished>> | null = null;
 	// Two tries: a second tab marking another lesson at the same moment changes the revision once.
@@ -321,11 +380,14 @@ export async function completeLesson(routeCtx: RouteCtx, ctx: Ctx) {
 		const current = await ctx.storage.enrollments!.getVersioned(key);
 		if (!current) return fail("NOT_ENROLLED", "Enroll in this course first.");
 		const row = current.value as Enrollment;
+		if (mustPass && !row.done.includes(input.lesson)) {
+			return fail("QUIZ_NOT_PASSED", `Pass the quiz on this lesson first: ${mustPass.passMark}% or more.`);
+		}
 		const done = row.done.includes(input.lesson) ? row.done : [...row.done, input.lesson].slice(-MAX_DONE);
 		let finished = false;
 		if (!row.completedAt) {
 			const left = course.lessons.map((lesson) => lesson.id).filter((id) => !done.includes(id));
-			live ??= await findPublished(ctx, "lms_lessons", new Set(left), LESSON_PAGES);
+			live ??= await findPublished(ctx, "lms_lessons", new Set(left), COMPLETE_LESSON_PAGES);
 			// Fail closed: a lesson the scan never reached counts as still to do.
 			finished = !left.some((id) => live!.has(id) || live!.unchecked.has(id));
 		}
@@ -342,8 +404,13 @@ export async function completeLesson(routeCtx: RouteCtx, ctx: Ctx) {
 	return fail("BUSY", "Your progress changed in another tab. Try again.");
 }
 
-/** A published lesson's quiz without the correct answers. `guest`: only for a lesson in a published Open course. */
-async function lessonQuiz(ctx: Ctx, lesson: string, guest: boolean) {
+/**
+ * A published lesson's quiz without the correct answers, accepted answers or explanations, and with its
+ * mode, pass mark and retake policy. `member`: also that member's attempts, best score, pass and when
+ * they may retry (one call more). Without a member: only for a lesson in a published Open course.
+ */
+async function lessonQuiz(ctx: Ctx, lesson: string, member: string | null) {
+	const guest = !member;
 	const [live, page, holders] = await Promise.all([
 		published(ctx, "lms_lessons", lesson),
 		ctx.storage.quizzes!.query({ where: { lessonKey: lesson }, limit: 1 }),
@@ -355,14 +422,31 @@ async function lessonQuiz(ctx: Ctx, lesson: string, guest: boolean) {
 	if (holders && !holders.some((c) => c.access === "open")) return SIGN_IN;
 	if (row === "invalid") return fail("QUIZ_INVALID", "This quiz cannot be shown. The site owner needs to fix it.");
 	if (row === "empty") return fail("QUIZ_EMPTY", "This quiz has no questions yet.");
-	return {
+	const id = item!.id;
+	const out = {
 		ok: true,
 		quiz: {
-			id: item!.id,
+			id,
 			title: row.title,
 			lessonKey: row.lessonKey,
-			questions: row.questions.map((q) => (q.type === "choice" ? { type: q.type, prompt: q.prompt, answers: q.answers } : { type: q.type, prompt: q.prompt })),
+			mode: row.mode,
+			...(row.mode === "graded" && row.passMark !== undefined ? { passMark: row.passMark } : {}),
+			retake: row.retake,
+			questions: row.questions.map((q) => (q.type === "choice" || q.type === "multi" ? { type: q.type, prompt: q.prompt, answers: q.answers } : { type: q.type, prompt: q.prompt })),
 		},
+	};
+	if (!member) return out;
+	const attempt = readAttempt(await ctx.storage.attempts!.get(attemptId(member, id)));
+	return { ...out, mine: mineOf(row, attempt) };
+}
+
+/** A member's standing on a quiz: what the kit shows above it and after each submit. */
+function mineOf(quiz: Quiz, attempt: ReturnType<typeof readAttempt>) {
+	return {
+		attempts: attempt?.attempts ?? 0,
+		best: attempt?.best ?? null,
+		passed: gates(quiz) ? hasPassed(quiz, attempt) : null,
+		...retakeState(quiz, attempt),
 	};
 }
 
@@ -374,17 +458,24 @@ async function lessonQuiz(ctx: Ctx, lesson: string, guest: boolean) {
  */
 export async function quiz(routeCtx: RouteCtx, ctx: Ctx) {
 	const input = parse(lessonQuizInput, routeCtx.input);
-	return input ? lessonQuiz(ctx, input.lesson, true) : BAD_INPUT;
+	return input ? lessonQuiz(ctx, input.lesson, null) : BAD_INPUT;
 }
 
-/** Member. The quiz of any published lesson, for a signed-in member. Two calls. */
+/** Member. The quiz of any published lesson, for a signed-in member, with their standing. Three calls. */
 export async function memberQuiz(routeCtx: RouteCtx, ctx: Ctx) {
-	if (!routeCtx.user?.id) return SIGN_IN;
+	const member = routeCtx.user?.id;
+	if (!member) return SIGN_IN;
 	const input = parse(lessonQuizInput, routeCtx.input);
-	return input ? lessonQuiz(ctx, input.lesson, false) : BAD_INPUT;
+	return input ? lessonQuiz(ctx, input.lesson, member) : BAD_INPUT;
 }
 
-/** Member. Scores on the server and replaces the member's attempt. Answers which questions were right, never the correct answers. */
+/**
+ * Member. Scores on the server and records the attempt in the member's one attempt row: the latest
+ * answers, the count, the best percent and a capped history. Refuses a submit the retake policy does
+ * not allow yet, saying when the member may retry (retryAt) or that no attempts are left. Answers
+ * which questions were right; only a Practice quiz also gets each right answer and explanation.
+ * Calls: the quiz, its lesson, the attempt (getVersioned) and compareAndSet: 4.
+ */
 export async function submitQuiz(routeCtx: RouteCtx, ctx: Ctx) {
 	const member = routeCtx.user?.id;
 	if (!member) return SIGN_IN;
@@ -396,22 +487,43 @@ export async function submitQuiz(routeCtx: RouteCtx, ctx: Ctx) {
 	if (row === null) return fail("QUIZ_NOT_FOUND", "No quiz on this lesson.");
 	if (row === "invalid") return fail("QUIZ_INVALID", "This quiz cannot be scored. The site owner needs to fix it.");
 	if (row === "empty") return fail("QUIZ_EMPTY", "This quiz has no questions yet.");
-	const valid =
-		input.answers.length === row.questions.length &&
-		row.questions.every((q, i) => input.answers[i]! <= (q.type === "choice" ? 3 : 1));
-	if (!valid) return fail("ANSWER_EVERY_QUESTION", "Answer every question, then submit.");
-	const right = row.questions.map((q, i) => input.answers[i] === q.correct);
+	const quiz = row;
+	const right = input.answers.length === quiz.questions.length ? quiz.questions.map((q, i) => grade(q, input.answers[i])) : [null];
+	if (right.some((r) => r === null)) return fail("ANSWER_EVERY_QUESTION", "Answer every question, then submit.");
+	const key = attemptId(member, input.quiz);
+	const current = await ctx.storage.attempts!.getVersioned(key);
+	const before = readAttempt(current?.value);
+	const allowed = retakeState(quiz, before);
+	if (allowed.attemptsLeft === 0) return { ...fail("NO_ATTEMPTS_LEFT", "You have used every attempt on this quiz."), attemptsLeft: 0 };
+	if (allowed.retryAt) return { ...fail("RETRY_LATER", "You can take this quiz again later."), retryAt: allowed.retryAt };
+	const now = nowIso();
+	const score = right.filter(Boolean).length;
+	const total = quiz.questions.length;
 	const attempt: Attempt = {
 		memberId: member,
 		quizId: input.quiz,
-		lessonKey: row.lessonKey,
-		score: right.filter(Boolean).length,
-		total: row.questions.length,
+		lessonKey: quiz.lessonKey,
+		score,
+		total,
 		answers: input.answers,
-		submittedAt: nowIso(),
+		submittedAt: now,
+		attempts: (before?.attempts ?? 0) + 1,
+		best: Math.max(before?.best ?? 0, percentOf(score, total)),
+		history: [...(before?.history ?? []), { score, total, submittedAt: now }].slice(-MAX_HISTORY),
 	};
-	await ctx.storage.attempts!.put(`${member}:${input.quiz}`, attempt);
-	return { ok: true, score: attempt.score, total: attempt.total, right };
+	// A second tab submitting at the same moment must not slip past the attempt limit.
+	const write = await ctx.storage.attempts!.compareAndSet(key, current?.revision ?? null, attempt);
+	if (!write.applied) return fail("BUSY", "This quiz was submitted in another tab. Reload the page and try again.");
+	return {
+		ok: true,
+		score,
+		total,
+		right,
+		percent: percentOf(score, total),
+		mode: quiz.mode,
+		...mineOf(quiz, attempt),
+		...(quiz.mode === "practice" ? { review: quiz.questions.map(reviewOf) } : {}),
+	};
 }
 
 /** Bridge calls one erase may spend on queries and deletes, under the 20 per call cap. */
