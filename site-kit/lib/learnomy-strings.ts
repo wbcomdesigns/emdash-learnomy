@@ -93,6 +93,7 @@ export const S = {
 		continue: "Continue",
 		review: "Review",
 		completed: "Completed",
+		gone: "This course is no longer available.",
 		erase: "Erase my course data",
 		eraseHelp: "Removes your enrollments, progress and quiz scores on this site. It cannot be undone.",
 		eraseConfirm: "Erase everything?",

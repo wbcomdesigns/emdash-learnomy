@@ -18,6 +18,17 @@ export function nextLesson(lessons: Lesson[], done: string[]): Lesson | undefine
 	return lessons.find((lesson) => !done.includes(lesson.id)) ?? lessons[0];
 }
 
+/**
+ * The member's progress on the lessons this page shows (the course's published outline lessons): the
+ * same count the plugin's myCourses route gives, so every screen agrees and never reads "7 of 5".
+ * Finished comes from the lessons, not the stored completedAt, so a draft lesson in the outline never
+ * holds a course open and a lesson added later reads as one more to do.
+ */
+export function progressOn(lessons: Lesson[], done: string[]) {
+	const count = lessons.filter((lesson) => done.includes(lesson.id)).length;
+	return { done: count, total: lessons.length, finished: lessons.length > 0 && count === lessons.length };
+}
+
 export const percent = (done: number, total: number) => (total > 0 ? Math.round((Math.min(done, total) / total) * 100) : 0);
 
 type Span = { _type?: string; text?: string; marks?: string[] };

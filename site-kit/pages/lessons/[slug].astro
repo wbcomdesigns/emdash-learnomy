@@ -18,7 +18,6 @@ const slug = decodeSlug(Astro.params.slug);
 if (!slug) return Astro.rewrite("/404");
 const { entry: lesson, cacheHint } = await getEmDashEntry("lms_lessons", slug);
 if (!lesson) return Astro.rewrite("/404");
-if (Astro.cache?.enabled) Astro.cache.set(cacheHint);
 
 const lessonId = lesson.data.id as string;
 const title = String(lesson.data.title || "");
@@ -29,7 +28,7 @@ if (!courseParam) {
 	const holders = await callPluginRoute(Astro.locals, PLUGIN, `lessonCourses?lesson=${encodeURIComponent(lessonId)}`);
 	courseParam = holders.ok ? String((holders.courses as Array<{ slug: string }>)[0]?.slug ?? "") : "";
 }
-const course = courseParam ? (await getEmDashEntry("lms_courses", courseParam)).entry : null;
+const { entry: course, cacheHint: courseCacheHint } = courseParam ? await getEmDashEntry("lms_courses", courseParam) : { entry: null, cacheHint: undefined };
 const courseId = course ? (course.data.id as string) : "";
 const outline = course ? await callPluginRoute(Astro.locals, PLUGIN, `outline?course=${encodeURIComponent(courseId)}`) : null;
 const lessons = ((outline?.ok ? outline.lessons : []) as Lesson[]) ?? [];
@@ -40,6 +39,19 @@ const prev = inCourse ? lessons[index - 1] : undefined;
 const next = inCourse ? lessons[index + 1] : undefined;
 const courseTitle = course ? String(course.data.title || "") : "";
 const position = inCourse ? S.lessonOf(index + 1, lessons.length) : "";
+// Route caching (when the site turns it on). An Open lesson's page holds the lesson text, and whether
+// it may depends on the course (its access) and the outline (plugin storage, which tags no page), so
+// it is never cached: a course switched to Members, or a lesson taken out of it, can never keep
+// serving the text to guests. A Members page holds the title only: it carries the lesson and course
+// tags and a short max-age, so outline changes show within a minute.
+if (Astro.cache?.enabled) {
+	if (open) Astro.cache.set(false);
+	else {
+		Astro.cache.set(cacheHint);
+		if (courseCacheHint) Astro.cache.set(courseCacheHint);
+		Astro.cache.set({ maxAge: 60 });
+	}
+}
 const canonical = new URL(inCourse ? lessonHref(slug, courseParam) : lessonHref(slug), Astro.url).href;
 const check = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7"/></svg>';
 ---
@@ -166,7 +178,7 @@ const check = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke
 
 <script>
 	import { api, esc, signInUrl } from "../../lib/wbcom-kit";
-	import { portableTextToHtml, PLUGIN, type Enrollment, type Lesson } from "../../lib/learnomy";
+	import { portableTextToHtml, PLUGIN, progressOn, type Enrollment, type Lesson } from "../../lib/learnomy";
 	import { S } from "../../lib/learnomy-strings";
 
 	type Question = { type: "choice" | "true_false"; prompt: string; answers?: string[] };
@@ -229,7 +241,8 @@ const check = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke
 					const row = out.enrollment as NonNullable<Enrollment>;
 					paint(row);
 					status.dataset.tone = "";
-					status.textContent = row.completedAt ? S.lesson.courseFinished : S.progress(lessons.filter((l) => row.done.includes(l.id)).length, lessons.length);
+					const counted = progressOn(lessons, row.done);
+					status.textContent = counted.finished ? S.lesson.courseFinished : S.progress(counted.done, counted.total);
 					root.querySelector<HTMLAnchorElement>("[data-learnomy-next]")?.focus();
 				});
 			};
@@ -278,7 +291,9 @@ const check = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke
 
 		async function loadQuiz() {
 			quizBox.hidden = false;
-			const result = await api(PLUGIN, `quiz?lesson=${encodeURIComponent(lessonId)}`);
+			// Guests may read the quiz of an Open lesson; a Members lesson's quiz is for signed-in members.
+			const route = root!.dataset.learnomyOpen === "1" ? "quiz" : "memberQuiz";
+			const result = await api(PLUGIN, `${route}?lesson=${encodeURIComponent(lessonId)}`);
 			if (!result.ok) {
 				const none = result.error?.code === "QUIZ_NOT_FOUND";
 				quizBody.innerHTML = `<p class="${none ? "learnomy-muted" : "learnomy-status"}" ${none ? "data-learnomy-quiz-none" : 'data-tone="error" data-learnomy-quiz-failed'}>${esc(none ? S.quiz.none : result.error?.message || S.quiz.failed)}</p>`;

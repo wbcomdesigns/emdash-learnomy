@@ -34,15 +34,21 @@ const Heading = `h${level}` as const;
 	import { courseHref, percent, PLUGIN } from "../lib/learnomy";
 	import { S } from "../lib/learnomy-strings";
 
-	type Item = { course: string; slug: string; title: string; done: number; total: number; completedAt: string | null };
+	/** One row of myCourses: progress is counted on the course's published lessons, as on the course page. */
+	type Item = { course: string; slug: string; title: string; available: boolean; done: number; total: number; finished: boolean };
 
 	function rowHtml(item: Item): string {
-		const pct = percent(item.done, item.total);
+		const title = esc(item.title || S.catalog.title);
+		// A course that was deleted or unpublished: named, no link, and its data can still be erased below.
+		if (!item.available) {
+			return `<li class="learnomy-row" data-learnomy-mine-row="${esc(item.course)}" data-learnomy-mine-gone><span class="learnomy-row__title">${title}</span><div class="learnomy-progress"><span class="learnomy-muted">${esc(S.mine.gone)}</span></div></li>`;
+		}
 		const href = courseHref(item.slug || item.course);
-		const progress = item.completedAt
+		const progress = item.finished
 			? `<span class="learnomy-badge learnomy-badge--done">${esc(S.mine.completed)}</span>`
-			: `<span>${esc(S.progress(Math.min(item.done, item.total), item.total))}</span><span class="learnomy-progress__track" aria-hidden="true"><span class="learnomy-progress__fill" style="width:${pct}%"></span></span>`;
-		return `<li class="learnomy-row" data-learnomy-mine-row="${esc(item.course)}"><a class="learnomy-row__title" href="${esc(href)}">${esc(item.title || S.catalog.title)}</a><div class="learnomy-progress">${progress}</div><a class="learnomy-btn ${item.completedAt ? "learnomy-btn--quiet" : ""}" href="${esc(href)}" aria-label="${esc(`${item.completedAt ? S.mine.review : S.mine.continue}: ${item.title}`)}">${esc(item.completedAt ? S.mine.review : S.mine.continue)}</a></li>`;
+			: `<span>${esc(S.progress(item.done, item.total))}</span><span class="learnomy-progress__track" aria-hidden="true"><span class="learnomy-progress__fill" style="width:${percent(item.done, item.total)}%"></span></span>`;
+		const action = item.finished ? S.mine.review : S.mine.continue;
+		return `<li class="learnomy-row" data-learnomy-mine-row="${esc(item.course)}"><a class="learnomy-row__title" href="${esc(href)}">${title}</a><div class="learnomy-progress">${progress}</div><a class="learnomy-btn ${item.finished ? "learnomy-btn--quiet" : ""}" href="${esc(href)}" aria-label="${esc(`${action}: ${item.title}`)}">${esc(action)}</a></li>`;
 	}
 
 	function eraseHtml(): string {
@@ -51,9 +57,12 @@ const Heading = `h${level}` as const;
 
 	function paint(root: HTMLElement, items: Item[]) {
 		const body = root.querySelector<HTMLElement>("[data-learnomy-mine-body]")!;
-		body.innerHTML = items.length
-			? `<ul class="learnomy-rows" data-learnomy-mine-list>${items.map(rowHtml).join("")}</ul>${eraseHtml()}`
-			: `<div class="learnomy-notice" data-learnomy-mine-empty><strong>${esc(S.mine.empty)}</strong><a class="learnomy-btn" href="/courses/">${esc(S.mine.browse)}</a></div>`;
+		// Erase is always offered to a signed-in member: quiz scores can exist without an enrollment.
+		body.innerHTML = `${
+			items.length
+				? `<ul class="learnomy-rows" data-learnomy-mine-list>${items.map(rowHtml).join("")}</ul>`
+				: `<div class="learnomy-notice" data-learnomy-mine-empty><strong>${esc(S.mine.empty)}</strong><a class="learnomy-btn" href="/courses/">${esc(S.mine.browse)}</a></div>`
+		}${eraseHtml()}`;
 		bindErase(root);
 	}
 

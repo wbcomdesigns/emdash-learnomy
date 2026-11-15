@@ -12,7 +12,12 @@ const slug = decodeSlug(Astro.params.slug);
 if (!slug) return Astro.rewrite("/404");
 const { entry: course, cacheHint } = await getEmDashEntry("lms_courses", slug);
 if (!course) return Astro.rewrite("/404");
-if (Astro.cache?.enabled) Astro.cache.set(cacheHint);
+// The course tag refreshes the page when the course changes; the lesson list comes from the outline
+// (plugin storage, which tags no page), so a short max-age shows outline edits within a minute.
+if (Astro.cache?.enabled) {
+	Astro.cache.set(cacheHint);
+	Astro.cache.set({ maxAge: 60 });
+}
 
 const id = course.data.id as string;
 const data = course.data;
@@ -137,7 +142,7 @@ const coverUrl = (() => {
 
 <script>
 	import { api, esc, signInUrl } from "../../lib/wbcom-kit";
-	import { lessonHref, nextLesson, percent, PLUGIN, type Enrollment, type Lesson } from "../../lib/learnomy";
+	import { lessonHref, nextLesson, percent, PLUGIN, progressOn, type Enrollment, type Lesson } from "../../lib/learnomy";
 	import { S } from "../../lib/learnomy-strings";
 
 	const root = document.querySelector<HTMLElement>("[data-learnomy-course]");
@@ -150,6 +155,7 @@ const coverUrl = (() => {
 		const finished = root.querySelector<HTMLElement>("[data-learnomy-finished]")!;
 		const status = root.querySelector<HTMLElement>("[data-learnomy-course-status]")!;
 		const bar = root.querySelector<HTMLElement>("[data-learnomy-course-progress]")!;
+		const help = root.querySelector<HTMLElement>("[data-learnomy-access-help]");
 
 		const say = (html: string, tone = "") => {
 			status.dataset.tone = tone;
@@ -161,19 +167,22 @@ const coverUrl = (() => {
 			enroll.removeAttribute("aria-busy");
 			const enrolled = Boolean(enrollment);
 			const done = enrollment?.done ?? [];
+			const counted = progressOn(lessons, done);
+			const complete = enrolled && counted.finished;
 			enroll.hidden = enrolled;
 			go.hidden = !enrolled || lessons.length === 0;
-			finished.hidden = !enrollment?.completedAt;
+			finished.hidden = !complete;
+			// The access line is for people who are not signed in: a signed-in member reads every lesson.
+			if (help && enrollment !== undefined) help.hidden = true;
 			if (enrolled && lessons.length) {
 				const next = nextLesson(lessons, done)!;
 				go.href = lessonHref(next.slug, courseSlug);
-				go.textContent = enrollment!.completedAt ? S.course.review : done.length ? S.course.continue : S.course.start;
-				const count = lessons.filter((lesson) => done.includes(lesson.id)).length;
+				go.textContent = complete ? S.course.review : counted.done ? S.course.continue : S.course.start;
 				bar.hidden = false;
-				bar.querySelector("[data-learnomy-course-progress-text]")!.textContent = S.progress(count, lessons.length);
-				bar.querySelector<HTMLElement>(".learnomy-progress__fill")!.style.width = `${percent(count, lessons.length)}%`;
+				bar.querySelector("[data-learnomy-course-progress-text]")!.textContent = S.progress(counted.done, counted.total);
+				bar.querySelector<HTMLElement>(".learnomy-progress__fill")!.style.width = `${percent(counted.done, counted.total)}%`;
 			}
-			const upNext = enrolled && !enrollment!.completedAt ? nextLesson(lessons, done)?.id : undefined;
+			const upNext = enrolled && !complete ? nextLesson(lessons, done)?.id : undefined;
 			root.querySelectorAll<HTMLElement>("[data-learnomy-step]").forEach((step) => {
 				const state = done.includes(step.dataset.learnomyStep ?? "") ? "done" : step.dataset.learnomyStep === upNext ? "current" : "todo";
 				step.dataset.learnomyState = state;

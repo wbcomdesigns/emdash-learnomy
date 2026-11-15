@@ -28,8 +28,11 @@
 	--learnomy-shadow: var(--shadow-card, 0 1px 2px light-dark(rgb(0 0 0 / 0.06), rgb(0 0 0 / 0.4)));
 	--learnomy-shadow-hover: var(--shadow-card-hover, 0 6px 20px light-dark(rgb(0 0 0 / 0.1), rgb(0 0 0 / 0.5)));
 	--learnomy-gap: var(--spacing-md, 1rem);
-	--learnomy-max: 72rem;
-	--learnomy-gutter: clamp(1rem, 4vw, 2rem);
+	/* The page frame follows the theme's content frame (create-emdash templates: --frame-width,
+	   --wide-width, --frame-padding), so the kit lines up with the header and footer. */
+	--learnomy-frame: var(--frame-width, 100%);
+	--learnomy-max: var(--wide-width, 72rem);
+	--learnomy-gutter: var(--frame-padding, clamp(1rem, 4vw, 2rem));
 	--learnomy-measure: 40rem;
 	--learnomy-tap: 44px;
 	--learnomy-cover-ratio: 16 / 9;
@@ -37,6 +40,7 @@
 
 .learnomy {
 	box-sizing: border-box;
+	width: var(--learnomy-frame);
 	max-width: var(--learnomy-max);
 	margin-inline: auto;
 	padding: clamp(1.5rem, 4vw, 3rem) var(--learnomy-gutter) clamp(2.5rem, 6vw, 4.5rem);
@@ -126,8 +130,16 @@
 	opacity: 0.6;
 }
 
+/* A 44px tall tap target that keeps the line looking the same. */
 .learnomy-crumbs a {
+	display: inline-flex;
+	align-items: center;
+	min-height: var(--learnomy-tap);
 	text-decoration: none;
+}
+
+.learnomy-crumbs ol {
+	align-items: center;
 }
 
 .learnomy-crumbs a:hover {
