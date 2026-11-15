@@ -59,6 +59,12 @@ describe("passing score (#28)", () => {
 		expect((await s.post("completeLesson", { course, lesson }, ana)).ok).toBe(true);
 	});
 
+	it("fails closed: a lesson whose stored quiz no longer reads cannot be marked complete", async () => {
+		const s = await open();
+		const { course, lesson } = await lessonWithQuiz(s, { ...QUIZ, questions: [{ type: "essay", prompt: "Write" }] });
+		expect((await s.post("completeLesson", { course, lesson }, ana)).error?.code).toBe("QUIZ_INVALID");
+	});
+
 	it("no pass mark never blocks; a lesson already done stays done when a pass mark is added", async () => {
 		const s = await open();
 		const { course, lesson } = await lessonWithQuiz(s, QUIZ);
@@ -347,5 +353,8 @@ describe("MCP saveQuiz and getQuiz for 0.2.0", () => {
 		expect(cleared.ok).toBe(true);
 		expect(got.passMark).toBeUndefined();
 		expect((await call("saveQuiz", { title: "Bad", questions: [], passMark: 0 })).error.code).toBe("INVALID_INPUT");
+		// A practice quiz keeps no pass mark (SCOPE 0.2.0), from the MCP tool too.
+		const practice = await call("saveQuiz", { title: "Practice", questions: ALL_TYPES, mode: "practice", passMark: 80 });
+		expect((await call("getQuiz", { quiz: practice.id })).passMark).toBeUndefined();
 	});
 });

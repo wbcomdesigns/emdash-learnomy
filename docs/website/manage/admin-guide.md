@@ -55,6 +55,8 @@ Visitors see the quiz under its lesson. They never see the correct answers befor
 
 A lesson a member already marked complete stays complete if you add a pass mark later.
 
+Two things to know before you rely on a quiz. Members who took it as Practice saw the right answers, so switching it to Graded later does not hide them. And on a graded quiz with unlimited attempts, the right or wrong mark on each question lets a member work out the choice answers by trying again. For quizzes that matter, set a maximum number of attempts or a wait.
+
 To delete a quiz, open it and press **Delete quiz**, then confirm. Its lesson shows no quiz after that, and its results stay in Quiz results.
 
 ## The lesson editor panel

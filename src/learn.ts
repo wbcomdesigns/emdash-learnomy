@@ -204,9 +204,9 @@ async function attemptFor(ctx: Ctx, memberId: string, quizId: string) {
 	return { current, row, before, kept };
 }
 
-/** Add `quizId` to the member's index of kept records. Compare-and-set, one retry: 2 to 4 calls. */
-async function listKept(ctx: Ctx, memberId: string, quizId: string): Promise<boolean> {
-	for (let i = 0; i < 2; i += 1) {
+/** Add `quizId` to the member's index of kept records. Compare-and-set, `tries` times: 2 calls each. */
+async function listKept(ctx: Ctx, memberId: string, quizId: string, tries = 2): Promise<boolean> {
+	for (let i = 0; i < tries; i += 1) {
 		const index = await ctx.kv.getVersioned<string[]>(retakeIndex(memberId));
 		if (index?.value.includes(quizId)) return true;
 		if ((await ctx.kv.compareAndSet(retakeIndex(memberId), index?.revision ?? null, [...(index?.value ?? []), quizId])).applied) return true;
@@ -225,10 +225,13 @@ const KEEP_TRIES = 3;
 async function raiseKept(ctx: Ctx, memberId: string, quizId: string, attempts: number, when: string, read: { value: Kept; revision: string } | null, tries = KEEP_TRIES): Promise<boolean> {
 	const key = retakeKey(memberId, quizId);
 	// A first record is listed in the member's index before it exists (2 calls, a retry 2 more).
-	if (!read && !(await listKept(ctx, memberId, quizId))) return false;
+	if (!read && !(await listKept(ctx, memberId, quizId, Math.min(tries, 2)))) return false;
 	let seen = read;
 	for (let i = 0; i < tries; i += 1) {
 		if (i > 0) seen = await ctx.kv.getVersioned<Kept>(key);
+		// Gone since the first read (an admin erase): list it again before recreating it, or it would
+		// have no index entry for the next admin erase to find.
+		if (i > 0 && !seen && !(await listKept(ctx, memberId, quizId, 1))) return false;
 		const old = seen?.value;
 		if (covers(old, attempts, when)) return true;
 		const value = { attempts: Math.max(old?.attempts ?? 0, attempts), at: later(old?.at ?? "", when) };
@@ -442,6 +445,8 @@ export async function completeLesson(routeCtx: RouteCtx, ctx: Ctx) {
 		return fail("LESSON_NOT_IN_COURSE", "That lesson is not part of this course.");
 	}
 	const gate = quizPage.items[0] ? parse(quizSchema, quizPage.items[0].data) : null;
+	// Fail closed: a lesson whose stored quiz no longer reads cannot be checked for a pass.
+	if (quizPage.items[0] && !gate) return fail("QUIZ_INVALID", "This lesson's quiz cannot be checked. The site owner needs to fix it.");
 	const mustPass = gate && gates(gate) && !hasPassed(gate, readAttempt(await ctx.storage.attempts!.get(attemptId(member, quizPage.items[0]!.id)))) ? gate : null;
 	// Published status of the outline lessons left to do, looked up once: a retry only has fewer left.
 	let live: Awaited<ReturnType<typeof findPublished>> | null = null;
@@ -544,8 +549,8 @@ export async function memberQuiz(routeCtx: RouteCtx, ctx: Ctx) {
  * not allow yet, saying when the member may retry (retryAt) or that no attempts are left. Answers
  * which questions were right; only a Practice quiz also gets each right answer and explanation.
  * Calls: the quiz, its lesson, the attempt beside the kept retake record, for a quiz with a retake
- * limit the kept record's raise (1 to 5, and 2 to 4 more the first time, to list it), and
- * compareAndSet: 14 at most.
+ * limit the kept record's raise (1 to 4 for the first try with listing it, up to 4 for each of two
+ * retries), and compareAndSet: 18 at most.
  */
 export async function submitQuiz(routeCtx: RouteCtx, ctx: Ctx) {
 	const member = routeCtx.user?.id;
@@ -645,8 +650,8 @@ export async function eraseRows(ctx: Ctx, memberId: string, keepRetakes = false)
 					safe.add(id);
 					continue;
 				}
-				// The read, the index (2) and one compare-and-set, keeping a call for the delete. A row not
-				// raised stays for the next call.
+				// The read, the index (2, one try) and one compare-and-set (one try), keeping a call for the
+				// delete: 4 at most per row, never more. A row not raised stays for the next call.
 				if (!room(5)) {
 					skipped = true;
 					continue;
@@ -658,7 +663,7 @@ export async function eraseRows(ctx: Ctx, memberId: string, keepRetakes = false)
 					continue;
 				}
 				const raised = await raiseKept(ctx, memberId, row.quizId, row.attempts, row.submittedAt, read, 1);
-				calls += read ? 1 : 3;
+				calls += read ? 1 : 3; // at most: one CAS, or the index (2) and one CAS
 				if (raised) safe.add(id);
 				else skipped = true;
 			}
@@ -674,18 +679,21 @@ export async function eraseRows(ctx: Ctx, memberId: string, keepRetakes = false)
 	if (!keepRetakes) {
 		// The admin erase: every kept record in the member's index, then the index (what is left of it
 		// when the calls run out, so the next call carries on).
+		// The index is changed first, with compare-and-set: a submit that lists a quiz meanwhile makes it
+		// fail and the next call starts again, so no record is left out of the index.
 		if (!room(2)) return { done: false, deleted };
-		const quizIds = (await ctx.kv.get<string[]>(retakeIndex(memberId))) ?? [];
+		const index = await ctx.kv.getVersioned<string[]>(retakeIndex(memberId));
 		calls += 1;
-		const now = quizIds.slice(0, Math.max(0, ERASE_CALLS - calls - 1));
-		for (const quizId of now) await ctx.kv.delete(retakeKey(memberId, quizId));
-		calls += now.length;
-		const left = quizIds.slice(now.length);
-		if (left.length) {
-			await ctx.kv.set(retakeIndex(memberId), left);
-			return { done: false, deleted };
+		const quizIds = index?.value ?? [];
+		if (quizIds.length) {
+			const now = quizIds.slice(0, Math.max(0, ERASE_CALLS - calls - 1));
+			const left = quizIds.slice(now.length);
+			const changed = left.length ? await ctx.kv.compareAndSet(retakeIndex(memberId), index!.revision, left) : await ctx.kv.compareAndDelete(retakeIndex(memberId), index!.revision);
+			calls += 1;
+			if (!changed.applied) return { done: false, deleted };
+			for (const quizId of now) await ctx.kv.delete(retakeKey(memberId, quizId));
+			if (left.length) return { done: false, deleted };
 		}
-		if (quizIds.length) await ctx.kv.delete(retakeIndex(memberId));
 	}
 	return { done: true, deleted };
 }

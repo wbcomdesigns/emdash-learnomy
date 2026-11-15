@@ -27,7 +27,7 @@ const CAP = 20;
 // (one retry) = 20 at most. progress: 2 + 3 (quizzes on a 200-lesson outline, 80 lessons a query) + 1
 // (attempts) = 6 at most. memberQuiz: 4 (with the kept retake record). submitQuiz: 5 (quiz, lesson, attempt getVersioned, the kept retake record, compareAndSet); with
 // a retake limit the kept record is raised before the attempt is saved: 1 compare-and-set, 2 more per
-// retry (3 tries), and the first time 2 to 4 to list it in the member's index: 14 at most.
+// retry (3 tries), and listing it in the member's index (2 to 4 the first time, 2 on a retry after an admin erase): 18 at most. Erase rounds under contention: tests/erase-race.test.ts counts them (20 at most).
 const MEASURED: Record<string, number> = {
 	"route outline (200 lessons, 262 published on the site)": 5,
 	"route quiz (guest, lesson in no course, 600 outlines)": 7,

@@ -378,6 +378,8 @@ const check = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke
 				info.hidden = !info.textContent;
 				// Out of attempts: the button goes; waiting: it comes back once the wait is over (on reload).
 				submit.hidden = mine?.attemptsLeft === 0 || Boolean(mine?.retryAt && Date.parse(mine.retryAt) > Date.now());
+				// The questions can't be answered either while no try is allowed.
+				form.querySelectorAll("fieldset").forEach((field) => (field.disabled = submit.hidden));
 				mustPass = Boolean(quiz.mode === "graded" && quiz.passMark && mine && mine.passed === false);
 				showPassFirst();
 			};

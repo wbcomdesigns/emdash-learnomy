@@ -116,7 +116,8 @@ export async function writeQuiz(
 		const problem = questionProblem(q);
 		if (problem) return fail("INVALID_QUESTION", problem);
 	}
-	const next = parse(quizSchema, { ...changed, updatedAt: nowIso(), rev: newRev() });
+	// A practice quiz never blocks, so it keeps no pass mark (SCOPE 0.2.0), whichever writer saved it.
+	const next = parse(quizSchema, { ...changed, ...(changed.mode === "practice" ? { passMark: undefined } : {}), updatedAt: nowIso(), rev: newRev() });
 	if (!next) return fail("INVALID_QUIZ", "Something in this quiz is not valid. Reload it and try again.");
 	const before = row?.lessonKey ?? "";
 	let claim: { revision: string } | null = null;

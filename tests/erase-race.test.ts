@@ -7,7 +7,7 @@ import { eraseRows, submitQuiz } from "../src/learn";
  * before it deleted them) must still count against the retake limit: the kept count only goes up
  * (security review, 2026-11-15). An in-memory site, so the submit can run inside deleteMany.
  */
-function memorySite(opts: { kvRefuses?: boolean } = {}) {
+function memorySite(opts: { kvRefuses?: boolean | ((key: string) => boolean) } = {}) {
 	let rev = 0;
 	const next = () => String((rev += 1));
 	const stores = new Map<string, Map<string, { value: unknown; revision: string }>>();
@@ -46,20 +46,29 @@ function memorySite(opts: { kvRefuses?: boolean } = {}) {
 			get: async (key: string) => kv.get(key)?.value ?? null,
 			getVersioned: async (key: string) => kv.get(key) ?? null,
 			compareAndSet: async (key: string, expected: string | null, value: unknown) => {
-				if (opts.kvRefuses || (kv.get(key)?.revision ?? null) !== expected) return { applied: false };
+				const refuses = typeof opts.kvRefuses === "function" ? opts.kvRefuses(key) : opts.kvRefuses;
+				if (refuses || (kv.get(key)?.revision ?? null) !== expected) return { applied: false };
 				const revision = next();
 				kv.set(key, { value, revision });
 				return { applied: true, revision };
 			},
 			set: async (key: string, value: unknown) => void kv.set(key, { value, revision: next() }),
 			delete: async (key: string) => kv.delete(key),
+			compareAndDelete: async (key: string, expected: string) => {
+				if ((kv.get(key)?.revision ?? null) !== expected) return { applied: false };
+				kv.delete(key);
+				return { applied: true };
+			},
 			list: async (prefix = "") => [...kv].filter(([key]) => key.startsWith(prefix)).map(([key, row]) => ({ key, value: row.value })),
 		},
 	};
 	const quiz = { title: "Q", lessonKey: "l1", questions: [{ type: "true_false", prompt: "Yes?", correct: 0 }], retake: { type: "max", attempts: 2 } as Record<string, unknown>, updatedAt: "x", rev: "r" };
 	stores.get("quizzes")!.set("q1", { value: quiz, revision: next() });
 	const put = (store: string, id: string, value: unknown) => stores.get(store)!.set(id, { value, revision: next() });
-	return { ctx: ctx as never, onDelete: (hook: () => Promise<void>) => (beforeDelete = hook), put, quiz, kv, attempts: stores.get("attempts")! };
+	// Every call to the site counts against the plugin's per-call cap.
+	let calls = 0;
+	const counted = (target: Record<string, any>): any => new Proxy(target, { get: (t, k) => (typeof t[k as string] === "function" ? (...args: unknown[]) => ((calls += 1), t[k as string](...args)) : typeof t[k as string] === "object" ? counted(t[k as string]) : t[k as string]) });
+	return { ctx: ctx as never, counted: counted(ctx) as never, calls: () => calls, resetCalls: () => (calls = 0), onDelete: (hook: () => Promise<void>) => (beforeDelete = hook), put, quiz, kv, attempts: stores.get("attempts")! };
 }
 
 describe("erase racing a submit", () => {
@@ -101,5 +110,42 @@ describe("erase racing a submit", () => {
 		expect((await submit()).error?.code).toBe("NO_ATTEMPTS_LEFT");
 		expect((await eraseRows(ctx, "ana", true)).done).toBe(true);
 		expect((await submit()).error?.code).toBe("NO_ATTEMPTS_LEFT");
+	});
+
+	it("an erase round never goes over 20 calls when every kept record write is contended", async () => {
+		// The index write loses its first try every time (a retry would win) and the record write always loses.
+		let indexTries = 0;
+		const site = memorySite({ kvRefuses: (key) => (key.startsWith("state:retakes:") ? (indexTries += 1) % 2 === 1 : true) });
+		for (let i = 0; i < 40; i += 1) site.put("quizzes", `q${i}`, { ...site.quiz });
+		for (let i = 0; i < 40; i += 1) site.put("attempts", `ana:q${i}`, { memberId: "ana", quizId: `q${i}`, lessonKey: "l1", score: 1, total: 1, answers: [0], submittedAt: "2026-11-10T11:00:00Z", attempts: 3 });
+		site.resetCalls();
+		const out = await eraseRows(site.counted, "ana", true);
+		expect(out.done).toBe(false);
+		expect(site.calls()).toBeLessThanOrEqual(20);
+	});
+
+	it("the admin erase never orphans a kept record a racing submit lists meanwhile", async () => {
+		const site = memorySite();
+		const submit = (quiz: string) => submitQuiz({ input: { quiz, answers: [0] }, user: { id: "ana" } }, site.ctx) as Promise<Record<string, any>>;
+		site.put("quizzes", "q2", { ...site.quiz });
+		await submit("q1");
+		// The submit on q2 lands right after the erase reads the index.
+		const kvApi = (site.ctx as unknown as { kv: Record<string, any> }).kv;
+		let raced = false;
+		for (const name of ["get", "getVersioned"]) {
+			const read = kvApi[name];
+			kvApi[name] = async (key: string) => {
+				const value = await read(key);
+				if (key === "state:retakes:ana" && !raced) {
+					raced = true;
+					await submit("q2");
+				}
+				return value;
+			};
+		}
+		let done = false;
+		for (let round = 0; round < 5 && !done; round += 1) done = (await eraseRows(site.ctx, "ana")).done;
+		expect(done).toBe(true);
+		expect([...site.kv.keys()].filter((key) => key.startsWith("state:retake"))).toEqual([]);
 	});
 });
