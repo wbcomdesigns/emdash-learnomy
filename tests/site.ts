@@ -18,13 +18,17 @@ type Out = Record<string, unknown> & { ok?: boolean; error?: { code: string } };
 export async function openSite() {
 	const rt = await createPluginRuntimeTestHost();
 	for (const collection of seed.collections) await rt.fixtures.collection(collection as never);
-	const get = (name: string, input?: unknown) => rt.transport.invokeRoute(name, input, { method: "GET" } as never) as Promise<Out>;
+	const get = (name: string, input?: unknown, user?: ReturnType<typeof member>) =>
+		rt.transport.invokeRoute(name, input, { method: "GET", ...(user ? { user } : {}) } as never) as Promise<Out>;
 	const post = (name: string, input: unknown, user?: ReturnType<typeof member>) =>
 		rt.transport.invokeRoute(name, input, { method: "POST", ...(user ? { user } : {}) } as never) as Promise<Out>;
 	const entry = async (collection: string, title: string, status = "published") =>
 		(await rt.fixtures.content(collection, { data: { title, ...(collection === "lms_courses" ? { access: "open" } : {}) }, slug: title.toLowerCase().replaceAll(" ", "-"), status } as never)).id as string;
 	return { rt, get, post, entry, dispose: () => rt.dispose() };
 }
+
+/** Outline lessons as the public outline route answers them: with the slug entry() gave each. */
+export const slugged = (lessons: Array<{ id: string; title: string }>) => lessons.map((l) => ({ ...l, slug: l.title.toLowerCase().replaceAll(" ", "-") }));
 
 export type Site = Awaited<ReturnType<typeof openSite>>;
 

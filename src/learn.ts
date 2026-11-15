@@ -1,5 +1,8 @@
 import {
+	catalogInput,
 	courseInput,
+	MAX_CATALOG,
+	outline as outlineSchema,
 	lessonInput,
 	MAX_DONE,
 	quiz as quizSchema,
@@ -33,29 +36,142 @@ const published = async (ctx: Ctx, collection: string, id: string) =>
 /** Published lessons a public outline scan reads, 100 a page: the first 1,500 published lessons of a site. */
 const LESSON_PAGES = 15;
 
+export type OutlineLesson = { id: string; title: string; slug: string };
+
 /**
- * Public. A published course's lessons in outline order, published lessons only, so a draft course or
- * a draft lesson title never leaves the site. Lesson status comes from the published lessons list,
- * 100 a page, stopping once every outline lesson is found: one page on most sites, 17 calls at most.
+ * A published course's lessons in outline order, published lessons only, so a draft course or a draft
+ * lesson title never leaves the site. Lesson status comes from the published lessons list, 100 a page,
+ * stopping once every outline lesson is found: one page on most sites, 17 calls at most. null for a
+ * course that is not published. Shared by the
+ * public outline route and the course structured data (page:metadata).
  * ponytail: a site with more than 1,500 published lessons may hide an outline lesson the scan did not
  * reach (hidden, never leaked); an index of published lessons is the upgrade if a site gets there.
  */
-export async function outline(routeCtx: RouteCtx, ctx: Ctx) {
-	const input = parse(courseInput, routeCtx.input);
-	if (!input) return BAD_INPUT;
-	const [live, row] = await Promise.all([published(ctx, "lms_courses", input.course), loadOutline(ctx, input.course)]);
-	if (!live) return { ok: true, course: input.course, lessons: [] };
+export async function publishedOutline(ctx: Ctx, course: string): Promise<OutlineLesson[] | null> {
+	const [live, row] = await Promise.all([published(ctx, "lms_courses", course), loadOutline(ctx, course)]);
+	if (!live) return null;
 	const wanted = new Set((row?.lessons ?? []).map((lesson) => lesson.id));
-	const found = new Map<string, string>();
+	const found = new Map<string, { title: string; slug: string }>();
 	let cursor: string | undefined;
 	for (let page = 0; page < LESSON_PAGES && found.size < wanted.size; page += 1) {
 		const result = await ctx.content!.list("lms_lessons", { where: { status: "published" }, limit: 100, ...(cursor ? { cursor } : {}) });
-		for (const item of result.items) if (wanted.has(item.id)) found.set(item.id, titleOf(item, "Untitled lesson"));
+		for (const item of result.items) if (wanted.has(item.id)) found.set(item.id, { title: titleOf(item, "Untitled lesson"), slug: item.slug ?? item.id });
 		if (!result.hasMore || !result.cursor) break;
 		cursor = result.cursor;
 	}
-	const lessons = (row?.lessons ?? []).filter((lesson) => found.has(lesson.id)).map((lesson) => ({ id: lesson.id, title: found.get(lesson.id)! }));
-	return { ok: true, course: input.course, lessons };
+	return (row?.lessons ?? []).filter((lesson) => found.has(lesson.id)).map((lesson) => ({ id: lesson.id, ...found.get(lesson.id)! }));
+}
+
+/** Public. A published course's published lessons in outline order, with the slug the kit links to. */
+export async function outline(routeCtx: RouteCtx, ctx: Ctx) {
+	const input = parse(courseInput, routeCtx.input);
+	if (!input) return BAD_INPUT;
+	return { ok: true, course: input.course, lessons: (await publishedOutline(ctx, input.course)) ?? [] };
+}
+
+/**
+ * Public. Lesson counts for the catalog cards, one storage read for up to 24 courses. A count is the
+ * outline's length, the same lessons completeLesson counts toward finishing; no title or id leaves.
+ */
+export async function catalog(routeCtx: RouteCtx, ctx: Ctx) {
+	const input = parse(catalogInput, routeCtx.input);
+	if (!input) return BAD_INPUT;
+	const ids = [...new Set(input.courses.split(",").map((id) => id.trim()).filter(Boolean))];
+	if (ids.length > MAX_CATALOG) return BAD_INPUT;
+	const rows = ids.length ? await ctx.storage.outlines!.getMany(ids) : new Map();
+	const counts: Record<string, number> = {};
+	for (const id of ids) counts[id] = parse(outlineSchema, rows.get(id))?.lessons.length ?? 0;
+	return { ok: true, counts };
+}
+
+/** Member. The signed-in member's enrollment in one course, or null. One call. */
+export async function progress(routeCtx: RouteCtx, ctx: Ctx) {
+	const member = routeCtx.user?.id;
+	if (!member) return SIGN_IN;
+	const input = parse(courseInput, routeCtx.input);
+	if (!input) return BAD_INPUT;
+	const row = (await ctx.storage.enrollments!.get(enrollmentId(member, input.course))) as Enrollment | null;
+	return { ok: true, enrollment: row ?? null };
+}
+
+/** Courses a member sees on Your courses: the most recently active first. */
+const MY_COURSES = 50;
+
+/**
+ * Member. The signed-in member's courses with progress, newest activity first. Progress counts done
+ * lessons that are still in the outline, against the outline's length (what completeLesson finishes
+ * on). Two calls: the member's enrollments and their outlines in one read.
+ * ponytail: shows the 50 most recent; a "more" page if members ever take more than 50 courses.
+ */
+export async function myCourses(routeCtx: RouteCtx, ctx: Ctx) {
+	const member = routeCtx.user?.id;
+	if (!member) return SIGN_IN;
+	const page = await ctx.storage.enrollments!.query({ where: { memberId: member }, orderBy: { updatedAt: "desc" }, limit: MY_COURSES });
+	const rows = page.items.map((item) => item.data as Enrollment);
+	const outlines = rows.length ? await ctx.storage.outlines!.getMany(rows.map((row) => row.courseKey)) : new Map();
+	const items = rows.map((row) => {
+		const lessons = parse(outlineSchema, outlines.get(row.courseKey))?.lessons ?? [];
+		const ids = new Set(lessons.map((lesson) => lesson.id));
+		return {
+			course: row.courseKey,
+			slug: row.courseSlug ?? "",
+			title: row.courseTitle,
+			startedAt: row.startedAt,
+			updatedAt: row.updatedAt,
+			completedAt: row.completedAt,
+			done: row.done.filter((id) => ids.has(id)).length,
+			total: lessons.length,
+		};
+	});
+	return { ok: true, items };
+}
+
+type Page = {
+	url: string;
+	title: string | null;
+	pageTitle?: string | null;
+	description: string | null;
+	canonical: string | null;
+	image: string | null;
+	siteName?: string;
+	siteUrl?: string;
+	content?: { collection: string; id: string; slug: string | null };
+};
+
+/**
+ * schema.org Course for a course page, lessons in hasPart. Lesson addresses follow the seed's
+ * lms_lessons urlPattern (/lessons/{slug}) with the course the kit lesson page reads from ?course=.
+ * Nothing for a draft course (publishedOutline answers none) or any other page.
+ */
+export async function courseGraph(page: Page, ctx: Ctx) {
+	const content = page.content;
+	if (!content || content.collection !== "lms_courses") return null;
+	const lessons = await publishedOutline(ctx, content.id);
+	if (!lessons) return null;
+	const url = page.canonical || page.url;
+	const origin = new URL(url).origin;
+	const courseSlug = content.slug ?? content.id;
+	return {
+		kind: "jsonld" as const,
+		id: "learnomy-course",
+		graph: {
+			"@context": "https://schema.org",
+			"@type": "Course",
+			"@id": `${url}#course`,
+			name: page.pageTitle || page.title || "Course",
+			...(page.description ? { description: page.description } : {}),
+			url,
+			...(page.image ? { image: page.image } : {}),
+			isAccessibleForFree: true,
+			...(page.siteName ? { provider: { "@type": "Organization", name: page.siteName, url: page.siteUrl || origin } } : {}),
+			hasPart: lessons.map((lesson, i) => ({
+				"@type": "LearningResource",
+				position: i + 1,
+				name: lesson.title,
+				url: `${origin}/lessons/${encodeURIComponent(lesson.slug)}?course=${encodeURIComponent(courseSlug)}`,
+			})),
+		},
+	};
 }
 
 /** Member. Creates the enrollment row only when absent (compare-and-set with no revision). */
@@ -71,6 +187,7 @@ export async function enroll(routeCtx: RouteCtx, ctx: Ctx) {
 		memberId: member,
 		courseKey: input.course,
 		courseTitle: asString(asRecord(course.data).title),
+		courseSlug: course.slug ?? "",
 		startedAt: now,
 		updatedAt: now,
 		completedAt: null,

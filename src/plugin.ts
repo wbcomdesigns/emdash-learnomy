@@ -1,7 +1,7 @@
 import type { RouteEntry, SandboxedPlugin } from "emdash/plugin";
 
 import { handleAdmin } from "./admin";
-import { completeLesson, enroll, eraseMember, outline, quiz, submitQuiz } from "./learn";
+import { catalog, completeLesson, courseGraph, enroll, eraseMember, myCourses, outline, progress, quiz, submitQuiz } from "./learn";
 import { handlePanel } from "./panel";
 import { mcpTools, toolRoutes } from "./tools";
 
@@ -15,9 +15,17 @@ const tools: Record<string, RouteEntry> = Object.fromEntries(
 );
 
 const plugin: SandboxedPlugin = {
+	hooks: {
+		// schema.org Course with its published lessons in hasPart, on a course page that passes its
+		// content to the layout (every create-emdash template does). Same calls as the outline route.
+		"page:metadata": { handler: async (event, ctx) => courseGraph(event.page, ctx) },
+	},
 	routes: {
 		health: { public: true, methods: ["GET"], handler: async (_routeCtx, ctx) => ({ ok: true, plugin: ctx.plugin.id, version: ctx.plugin.version }) },
 		outline: { public: true, methods: ["GET"], handler: async (routeCtx, ctx) => outline(routeCtx, ctx) },
+		catalog: { public: true, methods: ["GET"], handler: async (routeCtx, ctx) => catalog(routeCtx, ctx) },
+		progress: { permission: MEMBER, methods: ["GET"], handler: async (routeCtx, ctx) => progress(routeCtx, ctx) },
+		myCourses: { permission: MEMBER, methods: ["GET"], handler: async (routeCtx, ctx) => myCourses(routeCtx, ctx) },
 		quiz: { public: true, methods: ["GET"], handler: async (routeCtx, ctx) => quiz(routeCtx, ctx) },
 		enroll: { permission: MEMBER, methods: ["POST"], handler: async (routeCtx, ctx) => enroll(routeCtx, ctx) },
 		completeLesson: { permission: MEMBER, methods: ["POST"], handler: async (routeCtx, ctx) => completeLesson(routeCtx, ctx) },

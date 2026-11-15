@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { quiz as quizSchema } from "../src/schemas";
-import { ana, ben, courseWithOutline, openSite, QUIZ, quizOnLesson, type Site } from "./site";
+import { ana, ben, courseWithOutline, member, openSite, QUIZ, quizOnLesson, slugged, type Site } from "./site";
 
 let site: Site | undefined;
 afterEach(async () => {
@@ -14,7 +14,7 @@ describe("outline", () => {
 	it("answers a course's lessons in outline order, and none for a course without one", async () => {
 		const s = await open();
 		const { course, lessons } = await courseWithOutline(s, 3);
-		expect(await s.get("outline", { course })).toEqual({ ok: true, course, lessons });
+		expect(await s.get("outline", { course })).toEqual({ ok: true, course, lessons: slugged(lessons) });
 		expect(await s.get("outline", { course: "nope" })).toEqual({ ok: true, course: "nope", lessons: [] });
 		expect((await s.get("outline", {})).error?.code).toBe("INVALID_INPUT");
 	});
@@ -38,7 +38,7 @@ describe("public routes never reveal drafts", () => {
 		const row = await s.rt.inspect.storage.get<{ lessons: Array<{ id: string; title: string }> }>("outlines", course);
 		await s.rt.fixtures.plugin.storage("outlines", course, { ...row, lessons: [lessons[0], { id: hidden, title: "Unfinished draft lesson" }, lessons[1]] });
 		const out = await s.get("outline", { course });
-		expect(out.lessons).toEqual(lessons);
+		expect(out.lessons).toEqual(slugged(lessons));
 		expect(JSON.stringify(out)).not.toContain("Unfinished");
 	});
 
@@ -64,6 +64,9 @@ describe("member routes", () => {
 		] as const) {
 			expect((await s.post(name, input)).error?.code, name).toBe("SIGN_IN_REQUIRED");
 		}
+		for (const [name, input] of [["progress", { course }], ["myCourses", {}]] as const) {
+			expect((await s.get(name, input)).error?.code, name).toBe("SIGN_IN_REQUIRED");
+		}
 	});
 });
 
@@ -83,6 +86,82 @@ describe("enroll", () => {
 		const draft = await s.entry("lms_courses", "Draft course", "draft");
 		expect((await s.post("enroll", { course: draft }, ana)).error?.code).toBe("COURSE_NOT_FOUND");
 		expect((await s.post("enroll", { course: "missing" }, ana)).error?.code).toBe("COURSE_NOT_FOUND");
+	});
+});
+
+describe("kit reads: catalog, progress, myCourses", () => {
+	it("catalog answers outline lesson counts only, 0 for a course without an outline, and refuses more than 24", async () => {
+		const s = await open();
+		const a = await courseWithOutline(s, 3, "Course A");
+		const out = await s.get("catalog", { courses: `${a.course},nope` });
+		expect(out).toEqual({ ok: true, counts: { [a.course]: 3, nope: 0 } });
+		expect(JSON.stringify(out)).not.toContain("lesson");
+		const many = Array.from({ length: 25 }, (_, i) => `c${i}`).join(",");
+		expect((await s.get("catalog", { courses: many })).error?.code).toBe("INVALID_INPUT");
+	});
+
+	it("progress answers the member's own enrollment or null; myCourses lists theirs with progress and the course slug", async () => {
+		const s = await open();
+		const a = await courseWithOutline(s, 3, "Course A");
+		const b = await courseWithOutline(s, 2, "Course B");
+		expect(await s.get("progress", { course: a.course }, ana)).toEqual({ ok: true, enrollment: null });
+		await s.post("enroll", { course: a.course }, ana);
+		await s.post("enroll", { course: b.course }, ana);
+		await s.post("enroll", { course: a.course }, ben);
+		await s.post("completeLesson", { course: a.course, lesson: a.lessons[1]!.id }, ana);
+		expect((await s.get("progress", { course: a.course }, ana)).enrollment).toMatchObject({ memberId: "ana", done: [a.lessons[1]!.id], courseSlug: "course-a" });
+		const mine = (await s.get("myCourses", {}, ana)).items as Array<Record<string, unknown>>;
+		expect(mine).toHaveLength(2);
+		expect(mine[0]).toMatchObject({ course: a.course, slug: "course-a", title: "Course A", done: 1, total: 3, completedAt: null });
+		expect(mine[1]).toMatchObject({ course: b.course, slug: "course-b", done: 0, total: 2 });
+		expect(((await s.get("myCourses", {}, member("cara"))).items as unknown[])).toEqual([]);
+	});
+
+	it("myCourses counts only done lessons still in the outline", async () => {
+		const s = await open();
+		const a = await courseWithOutline(s, 2, "Course A");
+		await s.post("enroll", { course: a.course }, ana);
+		await s.post("completeLesson", { course: a.course, lesson: a.lessons[0]!.id }, ana);
+		const row = await s.rt.inspect.storage.get<{ lessons: unknown[] }>("outlines", a.course);
+		await s.rt.fixtures.plugin.storage("outlines", a.course, { ...row, lessons: [a.lessons[1]] });
+		expect(((await s.get("myCourses", {}, ana)).items as unknown[])[0]).toMatchObject({ done: 0, total: 1 });
+	});
+});
+
+describe("course structured data (page:metadata)", () => {
+	const page = (course: string, slug: string | null = "course-a") => ({
+		url: "https://site.test/courses/course-a",
+		title: "Course A | Site",
+		pageTitle: "Course A",
+		description: "Learn A",
+		canonical: "https://site.test/courses/course-a",
+		image: null,
+		siteName: "Site",
+		content: { collection: "lms_courses", id: course, slug },
+	});
+
+	it("gives a published course a schema.org Course with its published lessons in hasPart, in order", async () => {
+		const s = await open();
+		const { course, lessons } = await courseWithOutline(s, 2);
+		const hidden = await s.entry("lms_lessons", "Draft lesson", "draft");
+		const row = await s.rt.inspect.storage.get<Record<string, unknown>>("outlines", course);
+		await s.rt.fixtures.plugin.storage("outlines", course, { ...row, lessons: [...lessons, { id: hidden, title: "Draft lesson" }] });
+		const out = (await s.rt.transport.invokeHook("page:metadata", { page: page(course) })) as { kind: string; graph: Record<string, any> };
+		expect(out.kind).toBe("jsonld");
+		expect(out.graph).toMatchObject({ "@context": "https://schema.org", "@type": "Course", name: "Course A", description: "Learn A", provider: { "@type": "Organization", name: "Site" } });
+		expect(out.graph.hasPart).toEqual([
+			{ "@type": "LearningResource", position: 1, name: "Course A lesson 1", url: "https://site.test/lessons/course-a-lesson-1?course=course-a" },
+			{ "@type": "LearningResource", position: 2, name: "Course A lesson 2", url: "https://site.test/lessons/course-a-lesson-2?course=course-a" },
+		]);
+		expect(JSON.stringify(out)).not.toContain("Draft lesson");
+	});
+
+	it("gives nothing for a draft course or a page that is not a course", async () => {
+		const s = await open();
+		const draft = await s.entry("lms_courses", "Draft course", "draft");
+		expect(await s.rt.transport.invokeHook("page:metadata", { page: page(draft) })).toBeNull();
+		expect(await s.rt.transport.invokeHook("page:metadata", { page: { ...page(draft), content: { collection: "posts", id: "x", slug: "x" } } })).toBeNull();
+		expect(await s.rt.transport.invokeHook("page:metadata", { page: { ...page(draft), content: undefined } })).toBeNull();
 	});
 });
 

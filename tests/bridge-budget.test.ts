@@ -68,6 +68,10 @@ const MEASURED: Record<string, number> = {
 	"admin page_load /quizzes (opened from the lesson panel)": 4,
 	"panel open_quiz": 1,
 	"tool saveQuiz (new, on a lesson)": 3,
+	"route catalog (24 courses)": 1,
+	"route progress": 1,
+	"route myCourses (50 enrollments)": 2,
+	"hook page:metadata (200 lessons, 262 published on the site)": 5,
 };
 
 const seen = new Map<string, number>();
@@ -123,6 +127,13 @@ describe("bridge calls per entry point, worst case", () => {
 		expect(last.enrollment.completedAt).toBeTruthy();
 		await measure("route completeLesson (already done)", () => s.post("completeLesson", { course, lesson: lessons[0]!.id }, ana));
 		await measure("route submitQuiz (20 questions)", () => s.post("submitQuiz", { quiz: "q20", answers: Array(20).fill(2) }, ana));
+		const ids = [course, ...Array.from({ length: 23 }, (_, i) => `other-${i}`)].join(",");
+		expect((await measure("route catalog (24 courses)", () => s.get("catalog", { courses: ids }))).counts[course]).toBe(200);
+		await measure("route progress", () => s.get("progress", { course }, ana));
+		await measure("route myCourses (50 enrollments)", () => s.get("myCourses", {}, member("ben")));
+		const page = { url: "https://site.test/courses/a", title: "A", description: null, canonical: null, image: null, content: { collection: "lms_courses", id: course, slug: "a" } };
+		const graph = await measure("hook page:metadata (200 lessons, 262 published on the site)", () => s.rt.transport.invokeHook("page:metadata", { page }));
+		expect(graph.graph.hasPart).toHaveLength(200);
 	});
 
 	it("course outline admin and lesson panel", async () => {

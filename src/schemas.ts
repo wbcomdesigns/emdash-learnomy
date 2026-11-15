@@ -11,6 +11,9 @@ export const courseInput = z.object({ course: id });
 export const lessonInput = z.object({ course: id, lesson: id });
 export const quizInput = z.object({ quiz: id });
 /** The public quiz route finds a lesson's quiz by the lesson. */
+/** The catalog asks for lesson counts of up to 24 courses at once, as a comma-separated list. */
+export const MAX_CATALOG = 24;
+export const catalogInput = z.object({ courses: z.string().check(z.maxLength(MAX_CATALOG * 129)) });
 export const lessonQuizInput = z.object({ lesson: id });
 export const submitInput = z.object({ quiz: id, answers: z.array(z.int().check(z.minimum(0), z.maximum(3))).check(z.maxLength(20)) });
 
@@ -69,6 +72,8 @@ export type Enrollment = {
 	memberId: string;
 	courseKey: string;
 	courseTitle: string;
+	/** The course's slug when the member enrolled, so Your courses links without a lookup. */
+	courseSlug?: string;
 	startedAt: string;
 	updatedAt: string;
 	completedAt: string | null;

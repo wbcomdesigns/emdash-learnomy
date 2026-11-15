@@ -1,0 +1,214 @@
+---
+/* Learnomy course page: header with the primary action, the course text, then the ordered lessons. */
+import { decodeSlug, getEmDashEntry, getSeoMeta, getSiteSettings, getTermsForEntries } from "emdash";
+import { Image, PortableText } from "emdash/ui";
+import Layout from "../../layouts/LearnomyLayout.astro";
+import { lessonHref, PLUGIN, type Lesson } from "../../lib/learnomy";
+import { S } from "../../lib/learnomy-strings";
+import { callPluginRoute } from "../../lib/wbcom-kit";
+import "../../styles/learnomy.css";
+
+const slug = decodeSlug(Astro.params.slug);
+if (!slug) return Astro.rewrite("/404");
+const { entry: course, cacheHint } = await getEmDashEntry("lms_courses", slug);
+if (!course) return Astro.rewrite("/404");
+if (Astro.cache?.enabled) Astro.cache.set(cacheHint);
+
+const id = course.data.id as string;
+const data = course.data;
+const site = await getSiteSettings();
+const seo = getSeoMeta(course, { siteTitle: site?.title ?? "", siteUrl: Astro.url.origin, path: Astro.url.pathname.replace(/\/$/, "") });
+const [outline, categories] = await Promise.all([
+	callPluginRoute(Astro.locals, PLUGIN, `outline?course=${encodeURIComponent(id)}`),
+	getTermsForEntries("lms_courses", [id], "lms_course_category").catch(() => new Map()),
+]);
+const lessons = (outline.ok ? (outline.lessons as Lesson[]) : []) ?? [];
+const cat = (categories.get(id) ?? [])[0];
+const members = data.access === "members";
+const title = String(data.title || "");
+const lock = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>';
+const check = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7"/></svg>';
+const coverUrl = (() => {
+	const cover = data.cover as { src?: string; meta?: { storageKey?: string }; id?: string } | undefined;
+	const src = cover?.src || (cover?.meta?.storageKey ? `/_emdash/api/media/file/${cover.meta.storageKey}` : "");
+	return src ? new URL(src, Astro.url).href : null;
+})();
+---
+
+<Layout
+	title={seo.title || title}
+	pageTitle={seo.ogTitle || title}
+	description={seo.description || (data.excerpt as string) || null}
+	canonical={seo.canonical}
+	robots={seo.robots}
+	image={coverUrl}
+	content={{ collection: "lms_courses", id, slug }}
+>
+	<article
+		class="learnomy learnomy-course"
+		data-learnomy-course
+		data-learnomy-course-id={id}
+		data-learnomy-course-slug={slug}
+		data-learnomy-lessons={JSON.stringify(lessons)}
+	>
+		<nav class="learnomy-crumbs" aria-label={S.course.breadcrumb} data-learnomy-crumbs>
+			<ol>
+				<li><a href="/courses/">{S.catalog.title}</a></li>
+				{cat && <li><a href={`/courses/?category=${encodeURIComponent(cat.slug)}`}>{cat.label}</a></li>}
+				<li aria-current="page">{title}</li>
+			</ol>
+		</nav>
+
+		<header class:list={["learnomy-hero", !data.cover && "learnomy-hero--no-cover"]} data-learnomy-hero>
+			{
+				data.cover && (
+					<div class="learnomy-cover" data-learnomy-course-cover>
+						<Image image={data.cover} sizes="(min-width: 1100px) 600px, (min-width: 768px) 52vw, 100vw" priority />
+					</div>
+				)
+			}
+			<div class="learnomy-hero__text">
+				<div class="learnomy-hero__meta" data-learnomy-course-meta>
+					<span class="learnomy-badge" data-learnomy-badge={members ? "members" : "open"}>
+						{members && <Fragment set:html={lock} />}
+						{members ? S.common.members : S.common.open}
+					</span>
+					{cat && <span data-learnomy-course-category>{cat.label}</span>}
+					{outline.ok && <span data-learnomy-course-count>{S.lessonCount(lessons.length)}</span>}
+				</div>
+				<h1 data-learnomy-course-title>{title}</h1>
+				{data.excerpt && <p class="learnomy-lead" data-learnomy-course-excerpt>{data.excerpt}</p>}
+				<div class="learnomy-hero__panel" data-learnomy-course-panel>
+					<div class="learnomy-progress" data-learnomy-course-progress hidden>
+						<span data-learnomy-course-progress-text></span>
+						<span class="learnomy-progress__track" aria-hidden="true"><span class="learnomy-progress__fill" style="width:0%"></span></span>
+					</div>
+					<div class="learnomy-actions" data-learnomy-course-actions>
+						<button class="learnomy-btn" type="button" data-learnomy-enroll aria-busy="true">{S.course.enroll}</button>
+						<a class="learnomy-btn" href="#" data-learnomy-continue hidden>{S.course.continue}</a>
+						<span class="learnomy-badge learnomy-badge--done" data-learnomy-finished hidden>{S.course.finished}</span>
+					</div>
+					<p class="learnomy-muted" data-learnomy-access-help>{members ? S.common.membersHelp : S.common.openHelp}</p>
+					<p class="learnomy-status" role="status" aria-live="polite" data-learnomy-course-status></p>
+				</div>
+			</div>
+		</header>
+
+		<div class="learnomy-course__columns">
+			<div class="learnomy-prose" data-learnomy-course-body>
+				{data.content && <PortableText value={data.content} />}
+			</div>
+
+			<section aria-labelledby="learnomy-lessons-heading" data-learnomy-course-lessons>
+				<h2 id="learnomy-lessons-heading" style="margin-block-end: 1rem">{S.course.lessonsHeading}</h2>
+				{
+					!outline.ok ? (
+						<div class="learnomy-notice learnomy-notice--error" role="alert" data-learnomy-lessons-failed>
+							<strong>{S.course.failedLessons}</strong>
+						</div>
+					) : lessons.length === 0 ? (
+						<div class="learnomy-notice" data-learnomy-lessons-empty>
+							<strong>{S.course.noLessons}</strong>
+							<p class="learnomy-muted">{S.course.noLessonsHelp}</p>
+						</div>
+					) : (
+						<ol class="learnomy-steps" data-learnomy-steps>
+							{lessons.map((lesson, i) => (
+								<li class="learnomy-step" data-learnomy-step={lesson.id} data-learnomy-state="todo">
+									<a href={lessonHref(lesson.slug, slug)}>
+										<span class="learnomy-step__mark">
+											<span class="learnomy-step__num">{i + 1}</span>
+											<Fragment set:html={check} />
+										</span>
+										<span class="learnomy-step__text">
+											<span>{lesson.title}</span>
+											<span class="learnomy-step__state" data-learnomy-step-state hidden />
+										</span>
+									</a>
+								</li>
+							))}
+						</ol>
+					)
+				}
+			</section>
+		</div>
+	</article>
+</Layout>
+
+<script>
+	import { api, esc, signInUrl } from "../../lib/wbcom-kit";
+	import { lessonHref, nextLesson, percent, PLUGIN, type Enrollment, type Lesson } from "../../lib/learnomy";
+	import { S } from "../../lib/learnomy-strings";
+
+	const root = document.querySelector<HTMLElement>("[data-learnomy-course]");
+	if (root) {
+		const course = root.dataset.learnomyCourseId ?? "";
+		const courseSlug = root.dataset.learnomyCourseSlug ?? "";
+		const lessons = JSON.parse(root.dataset.learnomyLessons || "[]") as Lesson[];
+		const enroll = root.querySelector<HTMLButtonElement>("[data-learnomy-enroll]")!;
+		const go = root.querySelector<HTMLAnchorElement>("[data-learnomy-continue]")!;
+		const finished = root.querySelector<HTMLElement>("[data-learnomy-finished]")!;
+		const status = root.querySelector<HTMLElement>("[data-learnomy-course-status]")!;
+		const bar = root.querySelector<HTMLElement>("[data-learnomy-course-progress]")!;
+
+		const say = (html: string, tone = "") => {
+			status.dataset.tone = tone;
+			status.innerHTML = html;
+		};
+
+		/** Paint the header and the lesson list for one state: guest (undefined), not enrolled (null) or enrolled. */
+		const paint = (enrollment: Enrollment | undefined) => {
+			enroll.removeAttribute("aria-busy");
+			const enrolled = Boolean(enrollment);
+			const done = enrollment?.done ?? [];
+			enroll.hidden = enrolled;
+			go.hidden = !enrolled || lessons.length === 0;
+			finished.hidden = !enrollment?.completedAt;
+			if (enrolled && lessons.length) {
+				const next = nextLesson(lessons, done)!;
+				go.href = lessonHref(next.slug, courseSlug);
+				go.textContent = enrollment!.completedAt ? S.course.review : done.length ? S.course.continue : S.course.start;
+				const count = lessons.filter((lesson) => done.includes(lesson.id)).length;
+				bar.hidden = false;
+				bar.querySelector("[data-learnomy-course-progress-text]")!.textContent = S.progress(count, lessons.length);
+				bar.querySelector<HTMLElement>(".learnomy-progress__fill")!.style.width = `${percent(count, lessons.length)}%`;
+			}
+			const upNext = enrolled && !enrollment!.completedAt ? nextLesson(lessons, done)?.id : undefined;
+			root.querySelectorAll<HTMLElement>("[data-learnomy-step]").forEach((step) => {
+				const state = done.includes(step.dataset.learnomyStep ?? "") ? "done" : step.dataset.learnomyStep === upNext ? "current" : "todo";
+				step.dataset.learnomyState = state;
+				const label = step.querySelector<HTMLElement>("[data-learnomy-step-state]")!;
+				label.hidden = !enrolled;
+				label.textContent = state === "done" ? S.course.done : state === "current" ? S.course.current : S.course.todo;
+			});
+		};
+
+		enroll.addEventListener("click", async () => {
+			enroll.setAttribute("aria-busy", "true");
+			enroll.textContent = S.course.enrolling;
+			const result = await api(PLUGIN, "enroll", { course });
+			enroll.removeAttribute("aria-busy");
+			enroll.textContent = S.course.enroll;
+			if (result.ok) {
+				paint(result.enrollment as Enrollment);
+				say(esc(S.course.enrolled));
+				go.focus();
+				return;
+			}
+			if (result.error?.code === "SIGN_IN_REQUIRED") {
+				say(`${esc(S.course.signInToEnroll)} <a href="${esc(signInUrl())}">${esc(S.common.signIn)}</a>. ${esc(S.lesson.howToJoin)}`);
+				return;
+			}
+			if (result.error?.code === "ALREADY_ENROLLED") {
+				const again = await api(PLUGIN, `progress?course=${encodeURIComponent(course)}`);
+				if (again.ok) paint(again.enrollment as Enrollment);
+			}
+			say(esc(result.error?.message || S.common.failed), "error");
+		});
+
+		void (async () => {
+			const result = await api(PLUGIN, `progress?course=${encodeURIComponent(course)}`);
+			paint(result.ok ? (result.enrollment as Enrollment) : undefined);
+		})();
+	}
+</script>

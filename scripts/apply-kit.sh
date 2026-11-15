@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copy the site kit into the lab the same way a site owner would: lib, styles, components, pages.
+# Copy the site kit into the lab the same way a site owner would: lib, styles, components, pages, layouts.
 set -euo pipefail
 source "$(dirname "$0")/lab-env.sh"
 [[ -d "$LAB/src" ]] || { echo "Lab not found at $LAB. Run scripts/setup-lab.sh first." >&2; exit 1; }
@@ -8,13 +8,15 @@ source "$(dirname "$0")/lab-env.sh"
 # that another plugin put there with an older one: compare the number on their first line.
 # A copy from before the numbers existed counts as 0.
 shared_version() { local v; v="$(sed -n '1s/.*wbcom-shared: *\([0-9]*\).*/\1/p' "$1" 2>/dev/null)"; echo "${v:-0}"; }
-for part in lib styles components pages; do
+for part in lib styles components pages layouts; do
 	[[ -d "$PLUGIN/site-kit/$part" ]] || continue
 	mkdir -p "$LAB/src/$part"
 	for file in "$PLUGIN/site-kit/$part"/*; do
 		[[ -e "$file" ]] || continue
 		name="$(basename "$file")"
 		target="$LAB/src/$part/$name"
+		# The layout file is the site's own once copied (it maps the kit to the site's layout).
+		[[ "$part" == layouts && -e "$target" ]] && continue
 		if [[ "$name" == wbcom-base.css || "$name" == wbcom-kit.ts ]] && [[ -f "$target" ]]; then
 			(( $(shared_version "$file") >= $(shared_version "$target") )) || continue
 		fi

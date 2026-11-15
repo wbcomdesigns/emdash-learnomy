@@ -58,7 +58,7 @@ describe("Course outline page", () => {
 		expect(stored!.lessons.map((l) => l.id)).toEqual([ids[0], ids[1]]);
 		for (const id of [course, ...ids]) expect(visible(page)).not.toContain(id);
 		// The public outline route follows the saved order.
-		expect((await s.get("outline", { course })).lessons).toEqual([{ id: ids[0], title: "Knead" }, { id: ids[1], title: "Proof" }]);
+		expect((await s.get("outline", { course })).lessons).toEqual([{ id: ids[0], title: "Knead", slug: "knead" }, { id: ids[1], title: "Proof", slug: "proof" }]);
 	});
 
 	it("refuses a save from a second tab with an old version token", async () => {
