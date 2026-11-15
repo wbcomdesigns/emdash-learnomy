@@ -7,11 +7,31 @@ export const PLUGIN = "learnomy";
 export type Lesson = { id: string; title: string; slug: string };
 export type Enrollment = { done: string[]; completedAt: string | null } | null;
 
+/**
+ * A course is Open only when its access says "open". A course with no access value (made through the API
+ * or before the field existed) is Members, on every screen, the same rule the plugin's routes use.
+ */
+export const isOpenCourse = (data: { access?: unknown }) => data.access === "open";
+
 export const courseHref = (slug: string) => `/courses/${encodeURIComponent(slug)}`;
 
 /** A lesson page knows its course from ?course=, because one lesson can sit in several courses. */
 export const lessonHref = (lessonSlug: string, courseSlug?: string) =>
 	`/lessons/${encodeURIComponent(lessonSlug)}${courseSlug ? `?course=${encodeURIComponent(courseSlug)}` : ""}`;
+
+/** Catalog pages Previous can step back through; older pages fall back to the first page. */
+const CATALOG_BACK = 20;
+
+/**
+ * Previous and Next for the catalog. EmDash cursors only go forward, so the URL carries the cursors
+ * of the pages before this one (`back`, comma-separated: cursors are base64) and Previous pops one.
+ */
+export function catalogPages(cursor: string | undefined, back: string[], nextCursor: string | undefined) {
+	return {
+		previous: cursor ? { cursor: back.at(-1), back: back.slice(0, -1).join(",") || undefined } : undefined,
+		next: nextCursor ? { cursor: nextCursor, back: (cursor ? [...back, cursor].slice(-CATALOG_BACK) : []).join(",") || undefined } : undefined,
+	};
+}
 
 /** The first lesson not done yet, in outline order, or the first lesson when all are done. */
 export function nextLesson(lessons: Lesson[], done: string[]): Lesson | undefined {

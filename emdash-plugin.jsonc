@@ -40,9 +40,9 @@
 	"allowedHosts": [],
 	"storage": {
 		"outlines": { "indexes": ["updatedAt"] },
-		"enrollments": { "indexes": [["courseKey", "startedAt"], ["memberId", "updatedAt"]] },
+		"enrollments": { "indexes": ["startedAt", ["courseKey", "startedAt"], ["memberId", "updatedAt"]] },
 		"quizzes": { "indexes": ["updatedAt", "lessonKey"] },
-		"attempts": { "indexes": [["quizId", "submittedAt"], ["memberId", "submittedAt"]] }
+		"attempts": { "indexes": ["submittedAt", ["quizId", "submittedAt"], ["memberId", "submittedAt"]] }
 	},
 	"admin": {
 		"pages": [

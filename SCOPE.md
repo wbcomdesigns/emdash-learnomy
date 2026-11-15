@@ -70,7 +70,7 @@ Everything an owner does happens in the EmDash admin, with no code. Courses and 
 | Quiz | Plugin storage `quizzes` | Title, lesson key, questions embedded (type `choice` or `true_false`, prompt, answers, correct index), updatedAt, version token | Practice mode, passing score, bank (0.2.0) |
 | Attempt | Plugin storage `attempts`, id `${memberId}:${quizId}` | memberId, quizId, lessonKey, score, total, answers, submittedAt | `mode` |
 
-One row per member and course means progress is one get and one put, never a 100-row query (D). Indexes: `enrollments` `["courseKey","startedAt"]`, `["memberId","updatedAt"]`; `attempts` `["quizId","submittedAt"]`, `["memberId","submittedAt"]`; `quizzes` `["updatedAt"]`, `["lessonKey"]`; `outlines` `["updatedAt"]`. Counts use `count()`.
+One row per member and course means progress is one get and one put, never a 100-row query (D). Indexes: `enrollments` `["startedAt"]`, `["courseKey","startedAt"]`, `["memberId","updatedAt"]`; `attempts` `["submittedAt"]`, `["quizId","submittedAt"]`, `["memberId","submittedAt"]`; `quizzes` `["updatedAt"]`, `["lessonKey"]`; `outlines` `["updatedAt"]`. Counts use `count()`.
 
 ## One path for each action
 

@@ -58,7 +58,7 @@ When you edit a lesson, the **Learnomy** panel beside the editor shows which cou
 
 ![The Enrollments list](../images/admin-enrollments.webp)
 
-To find one member, type part of their name or their email in **Find a member by name or email** and press **Find**. Clear the box and press Find to see everything again.
+To find one member, type part of their name or their email in **Find a member by name or email** and press **Find**. The count above the list shows the matches, and **Next page** pages through all of them. A name is looked up among the first 500 members, up to 80 of them; an email finds anyone. Clear the box and press Find to see everything again.
 
 ## Erase one member's data
 

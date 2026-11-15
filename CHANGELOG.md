@@ -2,6 +2,16 @@
 
 Versions match `package.json`, the git tag and the registry release. Newest first.
 
+## [0.1.1]
+
+Fixes from the 0.1.0 review. No new permissions. Copy the site kit again after updating (catalog, course and lesson pages, and `learnomy.ts`).
+
+- Improve  - Find on Enrollments and Quiz results counts the matches only and pages through all of them with Next.
+- Fix      - A course with no access value shows as Members on every page, the same as its lessons.
+- Fix      - The catalog's Previous link goes to the previous page instead of the first.
+- Dev      - Single-column storage indexes for the newest-first admin lists; EmDash adds them when it loads the plugin.
+- Dev      - The registry Installation text says to redeploy on Cloudflare after installing or updating.
+
 ## [0.1.0]
 
 The first release of Learnomy for EmDash: free courses, lessons, progress and a quiz per lesson. Needs EmDash 1.5.0 or later.

@@ -2,7 +2,7 @@ import type { Question, Quiz } from "./schemas";
 import { MAX_QUESTIONS } from "./schemas";
 import { type Ctx, type Fail, titleOf } from "./lib/common";
 import { getOutline, saveOutline } from "./lib/outlines";
-import { listEnrollments, listResults, LIST_PAGE } from "./lib/people";
+import { FIND_MATCHES, listEnrollments, listResults, LIST_PAGE } from "./lib/people";
 import { deleteQuiz, getQuiz, listQuizzes, writeQuiz } from "./lib/quizzes";
 import { eraseRows } from "./learn";
 import { asNumber, asRecord, asString } from "./util";
@@ -420,7 +420,7 @@ async function submitQuizForm(ctx: Ctx, action: string, blockId: string, values:
 
 function listChrome(action: string, what: string, listed: { total: number; partial: boolean }, view: View): Block[] {
 	return [
-		{ type: "stats", items: [{ label: what, value: listed.total }] },
+		{ type: "stats", items: [{ label: view.find ? "Matches" : what, value: listed.total }] },
 		{
 			type: "form",
 			block_id: `${action}_find`,
@@ -428,7 +428,11 @@ function listChrome(action: string, what: string, listed: { total: number; parti
 			submit: { label: "Find", action_id: `${action}_find` },
 		},
 		...(view.find
-			? [note(listed.partial ? `Showing matches among the first 500 members. Search by their email to find anyone. Clear the box and press Find to see everything.` : "Clear the box and press Find to see everything.")]
+			? [
+					note(
+						`${listed.partial ? `Find looks through the first 500 members and keeps up to ${FIND_MATCHES} of them. Type more of the name, or search by email to find anyone. ` : ""}${listed.total > LIST_PAGE ? `${LIST_PAGE} per page, newest first. ` : ""}Clear the box and press Find to see everything.`,
+					),
+				]
 			: listed.total > LIST_PAGE
 				? [note(`${listed.total} in all, ${LIST_PAGE} per page, newest first.`)]
 				: []),

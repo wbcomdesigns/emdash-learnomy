@@ -14,6 +14,10 @@ describe("manifest and admin", () => {
 		const manifest = site.rt.manifest as unknown as { capabilities: string[]; storage: Record<string, unknown>; admin: { pages: Array<{ path: string }> } };
 		expect([...manifest.capabilities].sort()).toEqual(["content:read", "users:read"]);
 		expect(Object.keys(manifest.storage).sort()).toEqual(["attempts", "enrollments", "outlines", "quizzes"]);
+		// The admin lists sort newest first with no filter: a composite index does not serve that sort (issue #17).
+		const indexes = manifest.storage as Record<string, { indexes: Array<string | string[]> }>;
+		expect(indexes.enrollments!.indexes).toContain("startedAt");
+		expect(indexes.attempts!.indexes).toContain("submittedAt");
 		for (const page of manifest.admin.pages) {
 			expect((await site.rt.admin.loadPage(page.path)).blocks.length).toBeGreaterThan(0);
 		}
