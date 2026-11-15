@@ -215,7 +215,7 @@ describe("erase and retake limits (owner, 2026-11-15)", () => {
 		expect(await s.rt.inspect.storage.list("attempts")).toHaveLength(0);
 		expect(await s.rt.inspect.storage.list("enrollments")).toHaveLength(0);
 		// Only attempts used and the last time remain: no answers, scores or progress.
-		const kept = JSON.stringify(await s.rt.inspect.kv.get("state:retake:ana"));
+		const kept = JSON.stringify(await s.rt.inspect.kv.get("state:retake:ana:q1"));
 		expect(kept).toContain('"attempts":2');
 		expect(kept).not.toMatch(/score|answers|best|done/);
 		expect((await s.get("memberQuiz", { lesson }, ana)).mine).toMatchObject({ attempts: 2, attemptsLeft: 0, best: null });
@@ -240,7 +240,7 @@ describe("erase and retake limits (owner, 2026-11-15)", () => {
 		expect((await s.post("submitQuiz", { quiz: "q1", answers: [2, 0] }, ana)).error?.code).toBe("NO_ATTEMPTS_LEFT");
 		const out = (await s.rt.admin.act("/results", "member_erase", { value: { m: "ana", n: "Ana" }, user: root })) as R;
 		expect(out.toast?.type).toBe("success");
-		expect(await s.rt.inspect.kv.get("state:retake:ana")).toBeNull();
+		expect(await s.rt.inspect.kv.get("state:retake:ana:q1")).toBeNull();
 		expect(await s.post("submitQuiz", { quiz: "q1", answers: [2, 0] }, ana)).toMatchObject({ ok: true, attempts: 1 });
 	});
 });

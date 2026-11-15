@@ -26,7 +26,8 @@ const CAP = 20;
 // when that quiz has a pass mark) + 13 (status of the lessons left, none once all are done) + 2 + 2
 // (one retry) = 20 at most. progress: 2 + 3 (quizzes on a 200-lesson outline, 80 lessons a query) + 1
 // (attempts) = 6 at most. memberQuiz: 4 (with the kept retake record). submitQuiz: 5 (quiz, lesson, attempt getVersioned, the kept retake record, compareAndSet); with
-// a retake limit the kept record's compare-and-set adds 1, 3 on a conflict: 8 at most.
+// a retake limit the kept record is raised before the attempt is saved: 1 compare-and-set, 2 more per
+// retry (3 tries), and the first time 2 to 4 to list it in the member's index: 14 at most.
 const MEASURED: Record<string, number> = {
 	"route outline (200 lessons, 262 published on the site)": 5,
 	"route quiz (guest, lesson in no course, 600 outlines)": 7,
@@ -43,7 +44,7 @@ const MEASURED: Record<string, number> = {
 	"route completeLesson (already done)": 4,
 	"route completeLesson (not in outline)": 2,
 	"route submitQuiz (20 questions)": 5,
-	"route submitQuiz (retake limit, keeps the count)": 6,
+	"route submitQuiz (retake limit, keeps the count)": 8,
 	"route eraseMember (500 + 500 rows, each round)": 18,
 	"admin page_load /outline": 3,
 	"admin page_load /outline (opened from the lesson panel)": 14,

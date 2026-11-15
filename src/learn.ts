@@ -169,42 +169,72 @@ export async function lessonCourses(routeCtx: RouteCtx, ctx: Ctx) {
 const attemptId = (memberId: string, quizId: string) => `${memberId}:${quizId}`;
 
 /**
- * Attempts used and the last attempt time per quiz with a retake limit, one kv record per member.
- * submitQuiz raises it on every submit of a limited quiz (never lowers it), and a member's own erase
- * leaves it, so erasing cannot reset a limit (owner, 2026-11-15). No answers, scores or progress. The
- * admin erase deletes it.
+ * Attempts used and the last attempt time on one quiz with a retake limit: one kv record per member and
+ * quiz. Raised before every attempt on a limited quiz is saved and by the member's own erase, never
+ * lowered, so erasing cannot reset a limit (owner, 2026-11-15). No answers, scores or progress. The
+ * admin erase deletes them.
  */
-type Kept = Record<string, { attempts: number; at: string }>;
-const retakeKey = (memberId: string) => `state:retake:${memberId}`;
+type Kept = { attempts: number; at: string };
+const retakeKey = (memberId: string, quizId: string) => `state:retake:${memberId}:${quizId}`;
+/**
+ * The quiz ids a member has kept records for, so the admin erase can find them: kv.list(prefix) is
+ * not usable here (on D1 a prefix this long fails with "LIKE or GLOB pattern too complex").
+ */
+const retakeIndex = (memberId: string) => `state:retakes:${memberId}`;
+/** ISO times compared as instants (0.1.x rows stored them without milliseconds). */
+const at = (iso: string) => Date.parse(iso) || 0;
+const later = (a: string, b: string) => (at(a) >= at(b) ? a : b);
+const covers = (old: Kept | undefined | null, attempts: number, when: string) => Boolean(old && old.attempts >= attempts && at(old.at) >= at(when));
 
 /**
- * The member's attempt row, and their retake standing: attempts used and the last attempt time, the
- * larger of the row and the kept record (the row alone after an admin erase, the record alone after the
- * member's own erase). Two calls, read together.
+ * The member's attempt row and their retake standing: attempts used and the last attempt time, the
+ * larger of the row and the kept record, so the limit holds with or without an erase and for attempts
+ * made before the quiz was limited. Two calls, read together.
  */
 async function attemptFor(ctx: Ctx, memberId: string, quizId: string) {
-	const [current, kept] = await Promise.all([ctx.storage.attempts!.getVersioned(attemptId(memberId, quizId)), ctx.kv.getVersioned<Kept>(retakeKey(memberId))]);
+	const [current, kept] = await Promise.all([ctx.storage.attempts!.getVersioned(attemptId(memberId, quizId)), ctx.kv.getVersioned<Kept>(retakeKey(memberId, quizId))]);
 	const row = readAttempt(current?.value);
-	const left = kept?.value?.[quizId];
+	const left = kept?.value;
 	const before: Attempt | null =
 		row && (!left || left.attempts <= row.attempts)
 			? row
 			: left
-				? { memberId, quizId, lessonKey: row?.lessonKey ?? "", score: row?.score ?? 0, total: row?.total ?? 0, answers: row?.answers ?? [], submittedAt: left.at > (row?.submittedAt ?? "") ? left.at : row!.submittedAt, attempts: left.attempts, best: row?.best ?? 0, history: row?.history ?? [] }
+				? { memberId, quizId, lessonKey: row?.lessonKey ?? "", score: row?.score ?? 0, total: row?.total ?? 0, answers: row?.answers ?? [], submittedAt: later(left.at, row?.submittedAt ?? ""), attempts: left.attempts, best: row?.best ?? 0, history: row?.history ?? [] }
 				: null;
 	return { current, row, before, kept };
 }
 
-/** Raise the kept count for a limited quiz to at least `attempts`. Compare-and-set, one retry: 2 to 4 calls. */
-async function keepCount(ctx: Ctx, memberId: string, quizId: string, attempts: number, at: string, read: Awaited<ReturnType<typeof attemptFor>>["kept"]) {
-	let seen = read;
+/** Add `quizId` to the member's index of kept records. Compare-and-set, one retry: 2 to 4 calls. */
+async function listKept(ctx: Ctx, memberId: string, quizId: string): Promise<boolean> {
 	for (let i = 0; i < 2; i += 1) {
-		const value = { ...(seen?.value ?? {}) };
-		const old = value[quizId];
-		value[quizId] = { attempts: Math.max(old?.attempts ?? 0, attempts), at: old && old.at > at ? old.at : at };
-		if ((await ctx.kv.compareAndSet(retakeKey(memberId), seen?.revision ?? null, value)).applied) return;
-		seen = await ctx.kv.getVersioned<Kept>(retakeKey(memberId));
+		const index = await ctx.kv.getVersioned<string[]>(retakeIndex(memberId));
+		if (index?.value.includes(quizId)) return true;
+		if ((await ctx.kv.compareAndSet(retakeIndex(memberId), index?.revision ?? null, [...(index?.value ?? []), quizId])).applied) return true;
 	}
+	return false;
+}
+
+/** Tries a kept record raise gets before it gives up (each retry re-reads: 2 calls). */
+const KEEP_TRIES = 3;
+
+/**
+ * Raise the kept record to at least `attempts` and `when`, never lower. Compare-and-set until applied,
+ * at most `tries` (a retry re-reads): 1 to 2 x tries - 1 calls. false when it could not apply: the
+ * caller must not go on.
+ */
+async function raiseKept(ctx: Ctx, memberId: string, quizId: string, attempts: number, when: string, read: { value: Kept; revision: string } | null, tries = KEEP_TRIES): Promise<boolean> {
+	const key = retakeKey(memberId, quizId);
+	// A first record is listed in the member's index before it exists (2 calls, a retry 2 more).
+	if (!read && !(await listKept(ctx, memberId, quizId))) return false;
+	let seen = read;
+	for (let i = 0; i < tries; i += 1) {
+		if (i > 0) seen = await ctx.kv.getVersioned<Kept>(key);
+		const old = seen?.value;
+		if (covers(old, attempts, when)) return true;
+		const value = { attempts: Math.max(old?.attempts ?? 0, attempts), at: later(old?.at ?? "", when) };
+		if ((await ctx.kv.compareAndSet(key, seen?.revision ?? null, value)).applied) return true;
+	}
+	return false;
 }
 
 /** Lesson ids per `in` query, well under D1's 100 bound parameters. */
@@ -513,8 +543,9 @@ export async function memberQuiz(routeCtx: RouteCtx, ctx: Ctx) {
  * answers, the count, the best percent and a capped history. Refuses a submit the retake policy does
  * not allow yet, saying when the member may retry (retryAt) or that no attempts are left. Answers
  * which questions were right; only a Practice quiz also gets each right answer and explanation.
- * Calls: the quiz, its lesson, the attempt beside the kept retake record, compareAndSet, and for a
- * quiz with a retake limit the kept record's compare-and-set (one retry): 8 at most.
+ * Calls: the quiz, its lesson, the attempt beside the kept retake record, for a quiz with a retake
+ * limit the kept record's raise (1 to 5, and 2 to 4 more the first time, to list it), and
+ * compareAndSet: 14 at most.
  */
 export async function submitQuiz(routeCtx: RouteCtx, ctx: Ctx) {
 	const member = routeCtx.user?.id;
@@ -531,8 +562,7 @@ export async function submitQuiz(routeCtx: RouteCtx, ctx: Ctx) {
 	const right = input.answers.length === quiz.questions.length ? quiz.questions.map((q, i) => grade(q, input.answers[i])) : [null];
 	if (right.some((r) => r === null)) return fail("ANSWER_EVERY_QUESTION", "Answer every question, then submit.");
 	const key = attemptId(member, input.quiz);
-	const read = await attemptFor(ctx, member, input.quiz);
-	const { current, before } = read;
+	const { current, before, kept } = await attemptFor(ctx, member, input.quiz);
 	const allowed = retakeState(quiz, before);
 	if (allowed.attemptsLeft === 0) return { ...fail("NO_ATTEMPTS_LEFT", "You have used every attempt on this quiz."), attemptsLeft: 0 };
 	if (allowed.retryAt) return { ...fail("RETRY_LATER", "You can take this quiz again later."), retryAt: allowed.retryAt };
@@ -552,10 +582,13 @@ export async function submitQuiz(routeCtx: RouteCtx, ctx: Ctx) {
 		best: Math.max(before?.best ?? 0, percentOf(score, total)),
 		history: [...(before?.history ?? []), { score, total, submittedAt: now }].slice(-MAX_HISTORY),
 	};
+	// A limited quiz counts the attempt in the kept record first: a crash or a refused write after this
+	// leaves the count high (the member loses an attempt), never low. If it cannot apply, nothing is saved.
+	const busy = fail("BUSY", "This quiz was submitted in another tab. Reload the page and try again.");
+	if (quiz.retake.type !== "unlimited" && !(await raiseKept(ctx, member, input.quiz, attempt.attempts, now, kept))) return busy;
 	// A second tab submitting at the same moment must not slip past the attempt limit.
 	const write = await ctx.storage.attempts!.compareAndSet(key, current?.revision ?? null, attempt);
-	if (!write.applied) return fail("BUSY", "This quiz was submitted in another tab. Reload the page and try again.");
-	if (quiz.retake.type !== "unlimited") await keepCount(ctx, member, input.quiz, attempt.attempts, now, read.kept);
+	if (!write.applied) return busy;
 	return {
 		ok: true,
 		score,
@@ -572,28 +605,88 @@ export async function submitQuiz(routeCtx: RouteCtx, ctx: Ctx) {
 const ERASE_CALLS = 18;
 
 /**
- * Deletes a member's enrollments and attempts, 100 rows a batch. Stops before the call cap and
- * answers done: false so the caller asks again. Shared by the member route and the admin erase.
- * `keepRetakes` (the member's own erase) leaves the kept retake record (retakeKey), which submitQuiz
- * keeps current, so nothing is copied here and a submit racing the erase still counts. The admin erase
- * passes false and deletes that record too (one call more).
+ * Deletes a member's enrollments and attempts, 100 rows a batch, and stops before the call cap with
+ * done: false so the caller asks again. Shared by the member route and the admin erase.
+ * `keepRetakes` (the member's own erase): before an attempt row of a quiz that is limited now is
+ * deleted, its kept record is raised to the row's attempts and time (a backstop for attempts made
+ * before 0.2.0 or while the quiz was unlimited); a row whose raise cannot apply is left for the next
+ * call. The admin erase deletes the member's kept records too. Per attempts page: query, the quizzes,
+ * the kept records (one list), two calls per record to raise, the delete.
  */
 export async function eraseRows(ctx: Ctx, memberId: string, keepRetakes = false): Promise<{ done: boolean; deleted: number }> {
 	let calls = 0;
 	let deleted = 0;
-	for (const store of ["enrollments", "attempts"] as const) {
-		for (;;) {
-			if (calls + 2 > ERASE_CALLS) return { done: false, deleted };
-			const page = await ctx.storage[store]!.query({ where: { memberId }, limit: 100 });
-			calls += 1;
-			if (page.items.length > 0) {
-				deleted += await ctx.storage[store]!.deleteMany(page.items.map((item) => item.id));
-				calls += 1;
-			}
-			if (!page.hasMore) break;
-		}
+	const room = (n: number) => calls + n <= ERASE_CALLS;
+	for (;;) {
+		if (!room(2)) return { done: false, deleted };
+		const page = await ctx.storage.enrollments!.query({ where: { memberId }, limit: 100 });
+		calls += 1;
+		if (page.items.length) deleted += await ctx.storage.enrollments!.deleteMany(page.items.map((item) => item.id));
+		calls += page.items.length ? 1 : 0;
+		if (!page.hasMore) break;
 	}
-	if (!keepRetakes) await ctx.kv.delete(retakeKey(memberId));
+	for (;;) {
+		if (!room(keepRetakes ? 3 : 2)) return { done: false, deleted };
+		const page = await ctx.storage.attempts!.query({ where: { memberId }, limit: 100 });
+		calls += 1;
+		let ids = page.items.map((item) => item.id);
+		let skipped = false;
+		if (keepRetakes && ids.length) {
+			const rows = page.items.flatMap((item) => {
+				const row = readAttempt(item.data);
+				return row ? [{ id: item.id, row }] : [];
+			});
+			const quizzes = await ctx.storage.quizzes!.getMany([...new Set(rows.map((r) => r.row.quizId))]);
+			calls += 1;
+			const safe = new Set(ids.filter((id) => !rows.some((r) => r.id === id)));
+			for (const { id, row } of rows) {
+				const quiz = parse(quizSchema, quizzes.get(row.quizId));
+				if (!quiz || quiz.retake.type === "unlimited") {
+					safe.add(id);
+					continue;
+				}
+				// The read, the index (2) and one compare-and-set, keeping a call for the delete. A row not
+				// raised stays for the next call.
+				if (!room(5)) {
+					skipped = true;
+					continue;
+				}
+				const read = await ctx.kv.getVersioned<Kept>(retakeKey(memberId, row.quizId));
+				calls += 1;
+				if (covers(read?.value, row.attempts, row.submittedAt)) {
+					safe.add(id);
+					continue;
+				}
+				const raised = await raiseKept(ctx, memberId, row.quizId, row.attempts, row.submittedAt, read, 1);
+				calls += read ? 1 : 3;
+				if (raised) safe.add(id);
+				else skipped = true;
+			}
+			ids = ids.filter((id) => safe.has(id));
+		}
+		if (ids.length) {
+			deleted += await ctx.storage.attempts!.deleteMany(ids);
+			calls += 1;
+		}
+		if (skipped) return { done: false, deleted };
+		if (!page.hasMore) break;
+	}
+	if (!keepRetakes) {
+		// The admin erase: every kept record in the member's index, then the index (what is left of it
+		// when the calls run out, so the next call carries on).
+		if (!room(2)) return { done: false, deleted };
+		const quizIds = (await ctx.kv.get<string[]>(retakeIndex(memberId))) ?? [];
+		calls += 1;
+		const now = quizIds.slice(0, Math.max(0, ERASE_CALLS - calls - 1));
+		for (const quizId of now) await ctx.kv.delete(retakeKey(memberId, quizId));
+		calls += now.length;
+		const left = quizIds.slice(now.length);
+		if (left.length) {
+			await ctx.kv.set(retakeIndex(memberId), left);
+			return { done: false, deleted };
+		}
+		if (quizIds.length) await ctx.kv.delete(retakeIndex(memberId));
+	}
 	return { done: true, deleted };
 }
 

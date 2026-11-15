@@ -7,7 +7,7 @@ import { eraseRows, submitQuiz } from "../src/learn";
  * before it deleted them) must still count against the retake limit: the kept count only goes up
  * (security review, 2026-11-15). An in-memory site, so the submit can run inside deleteMany.
  */
-function memorySite() {
+function memorySite(opts: { kvRefuses?: boolean } = {}) {
 	let rev = 0;
 	const next = () => String((rev += 1));
 	const stores = new Map<string, Map<string, { value: unknown; revision: string }>>();
@@ -46,18 +46,20 @@ function memorySite() {
 			get: async (key: string) => kv.get(key)?.value ?? null,
 			getVersioned: async (key: string) => kv.get(key) ?? null,
 			compareAndSet: async (key: string, expected: string | null, value: unknown) => {
-				if ((kv.get(key)?.revision ?? null) !== expected) return { applied: false };
+				if (opts.kvRefuses || (kv.get(key)?.revision ?? null) !== expected) return { applied: false };
 				const revision = next();
 				kv.set(key, { value, revision });
 				return { applied: true, revision };
 			},
 			set: async (key: string, value: unknown) => void kv.set(key, { value, revision: next() }),
 			delete: async (key: string) => kv.delete(key),
+			list: async (prefix = "") => [...kv].filter(([key]) => key.startsWith(prefix)).map(([key, row]) => ({ key, value: row.value })),
 		},
 	};
-	const quiz = { title: "Q", lessonKey: "l1", questions: [{ type: "true_false", prompt: "Yes?", correct: 0 }], retake: { type: "max", attempts: 2 }, updatedAt: "x", rev: "r" };
+	const quiz = { title: "Q", lessonKey: "l1", questions: [{ type: "true_false", prompt: "Yes?", correct: 0 }], retake: { type: "max", attempts: 2 } as Record<string, unknown>, updatedAt: "x", rev: "r" };
 	stores.get("quizzes")!.set("q1", { value: quiz, revision: next() });
-	return { ctx: ctx as never, onDelete: (hook: () => Promise<void>) => (beforeDelete = hook) };
+	const put = (store: string, id: string, value: unknown) => stores.get(store)!.set(id, { value, revision: next() });
+	return { ctx: ctx as never, onDelete: (hook: () => Promise<void>) => (beforeDelete = hook), put, quiz, kv, attempts: stores.get("attempts")! };
 }
 
 describe("erase racing a submit", () => {
@@ -68,6 +70,35 @@ describe("erase racing a submit", () => {
 		onDelete(async () => {
 			expect((await submit()).attempts).toBe(2);
 		});
+		expect((await eraseRows(ctx, "ana", true)).done).toBe(true);
+		expect((await submit()).error?.code).toBe("NO_ATTEMPTS_LEFT");
+	});
+
+	it("fails closed: when the kept count cannot be raised, the attempt is not saved and the submit answers BUSY", async () => {
+		const { ctx, attempts } = memorySite({ kvRefuses: true });
+		const out = (await submitQuiz({ input: { quiz: "q1", answers: [0] }, user: { id: "ana" } }, ctx)) as Record<string, any>;
+		expect(out.error?.code).toBe("BUSY");
+		expect(attempts.size).toBe(0);
+	});
+
+	it("the member's erase raises the kept count from a 0.1.x attempt row before deleting it", async () => {
+		const { ctx, put, kv } = memorySite();
+		put("attempts", "ana:q1", { memberId: "ana", quizId: "q1", lessonKey: "l1", score: 1, total: 1, answers: [0], submittedAt: "2026-11-10T11:00:00Z" });
+		put("attempts", "ana:q1x", { memberId: "ana", quizId: "q1", lessonKey: "l1", score: 1, total: 1, answers: [0], submittedAt: "2026-11-01T11:00:00Z", attempts: 2 });
+		expect((await eraseRows(ctx, "ana", true)).done).toBe(true);
+		expect((kv.get("state:retake:ana:q1")?.value as { attempts: number }).attempts).toBe(2);
+		const out = (await submitQuiz({ input: { quiz: "q1", answers: [0] }, user: { id: "ana" } }, ctx)) as Record<string, any>;
+		expect(out.error?.code).toBe("NO_ATTEMPTS_LEFT");
+	});
+
+	it("attempts made while the quiz was unlimited count once the owner limits it, with or without an erase", async () => {
+		const { ctx, quiz } = memorySite();
+		const submit = () => submitQuiz({ input: { quiz: "q1", answers: [0] }, user: { id: "ana" } }, ctx) as Promise<Record<string, any>>;
+		quiz.retake = { type: "unlimited" };
+		await submit();
+		await submit();
+		quiz.retake = { type: "max", attempts: 2 };
+		expect((await submit()).error?.code).toBe("NO_ATTEMPTS_LEFT");
 		expect((await eraseRows(ctx, "ana", true)).done).toBe(true);
 		expect((await submit()).error?.code).toBe("NO_ATTEMPTS_LEFT");
 	});
