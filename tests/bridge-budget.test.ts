@@ -25,11 +25,11 @@ const CAP = 20;
 // 0.2.0) + 3 + 12 = 19 at most. completeLesson: 1 + 1 (the lesson's quiz) + 1 (the member's attempt
 // when that quiz has a pass mark) + 13 (status of the lessons left, none once all are done) + 2 + 2
 // (one retry) = 20 at most. progress: 2 + 3 (quizzes on a 200-lesson outline, 80 lessons a query) + 1
-// (attempts) = 6 at most. memberQuiz: 3. submitQuiz: 4 (quiz, lesson, attempt getVersioned, compareAndSet).
+// (attempts) = 6 at most. memberQuiz: 4 (with the kept retake record). submitQuiz: 5 (quiz, lesson, attempt getVersioned, the kept retake record, compareAndSet).
 const MEASURED: Record<string, number> = {
 	"route outline (200 lessons, 262 published on the site)": 5,
 	"route quiz (guest, lesson in no course, 600 outlines)": 7,
-	"route memberQuiz (20 questions)": 3,
+	"route memberQuiz (20 questions)": 4,
 	"route completeLesson (graded quiz with a pass mark, not passed)": 4,
 	"route completeLesson (graded quiz with a pass mark, passed)": 8,
 	"route progress (3 pass-mark quizzes on 200 lessons)": 6,
@@ -41,7 +41,7 @@ const MEASURED: Record<string, number> = {
 	"route completeLesson (last lesson of 200)": 4,
 	"route completeLesson (already done)": 4,
 	"route completeLesson (not in outline)": 2,
-	"route submitQuiz (20 questions)": 4,
+	"route submitQuiz (20 questions)": 5,
 	"route eraseMember (500 + 500 rows, each round)": 18,
 	"admin page_load /outline": 3,
 	"admin page_load /outline (opened from the lesson panel)": 14,

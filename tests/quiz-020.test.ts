@@ -205,6 +205,46 @@ describe("retakes and limits (#30)", () => {
 	});
 });
 
+describe("erase and retake limits (owner, 2026-11-15)", () => {
+	it("a member's own erase keeps attempts used: a submit past the limit is still refused, and the quiz shows none left", async () => {
+		const s = await open();
+		const { lesson } = await lessonWithQuiz(s, { ...QUIZ, retake: { type: "max", attempts: 2 } });
+		await s.post("submitQuiz", { quiz: "q1", answers: [0, 0] }, ana);
+		await s.post("submitQuiz", { quiz: "q1", answers: [2, 0] }, ana);
+		expect((await s.post("eraseMember", {}, ana)).done).toBe(true);
+		expect(await s.rt.inspect.storage.list("attempts")).toHaveLength(0);
+		expect(await s.rt.inspect.storage.list("enrollments")).toHaveLength(0);
+		// Only attempts used and the last time remain: no answers, scores or progress.
+		const kept = JSON.stringify(await s.rt.inspect.kv.get("state:retake:ana"));
+		expect(kept).toContain('"attempts":2');
+		expect(kept).not.toMatch(/score|answers|best|done/);
+		expect((await s.get("memberQuiz", { lesson }, ana)).mine).toMatchObject({ attempts: 2, attemptsLeft: 0, best: null });
+		expect((await s.post("submitQuiz", { quiz: "q1", answers: [2, 0] }, ana)).error?.code).toBe("NO_ATTEMPTS_LEFT");
+	});
+
+	it("a wait is still enforced after the member's own erase", async () => {
+		const s = await open();
+		await lessonWithQuiz(s, { ...QUIZ, retake: { type: "wait", minutes: 30 } });
+		const first = await s.post("submitQuiz", { quiz: "q1", answers: [0, 0] }, ana);
+		await s.post("eraseMember", {}, ana);
+		const refused = await s.post("submitQuiz", { quiz: "q1", answers: [2, 0] }, ana);
+		expect(refused.error?.code).toBe("RETRY_LATER");
+		expect(refused.retryAt).toBe(first.retryAt);
+	});
+
+	it("the admin erase removes the kept record, so the member can submit again", async () => {
+		const s = await open();
+		await lessonWithQuiz(s, { ...QUIZ, retake: { type: "max", attempts: 1 } });
+		await s.post("submitQuiz", { quiz: "q1", answers: [0, 0] }, ana);
+		await s.post("eraseMember", {}, ana);
+		expect((await s.post("submitQuiz", { quiz: "q1", answers: [2, 0] }, ana)).error?.code).toBe("NO_ATTEMPTS_LEFT");
+		const out = (await s.rt.admin.act("/results", "member_erase", { value: { m: "ana", n: "Ana" }, user: root })) as R;
+		expect(out.toast?.type).toBe("success");
+		expect(await s.rt.inspect.kv.get("state:retake:ana")).toBeNull();
+		expect(await s.post("submitQuiz", { quiz: "q1", answers: [2, 0] }, ana)).toMatchObject({ ok: true, attempts: 1 });
+	});
+});
+
 describe("upgrade from 0.1.x, no migration step", () => {
 	const OLD_ATTEMPT = { memberId: "ana", quizId: "q1", lessonKey: "", score: 1, total: 2, answers: [0, 0], submittedAt: "2026-11-10T00:00:00.000Z" };
 

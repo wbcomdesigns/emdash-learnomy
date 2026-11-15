@@ -403,23 +403,13 @@ const check = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke
 				submit.textContent = S.quiz.submit;
 				if (!out.ok) {
 					// Answers stay where they are.
-					const code = out.error?.code;
+					const code = out.error?.code ?? "";
+					const words: Record<string, string> = { NO_ATTEMPTS_LEFT: S.quiz.noAttemptsLeft, BUSY: S.quiz.busy, ANSWER_EVERY_QUESTION: S.quiz.answerAll, FAILED: S.quiz.saveFailed, OFFLINE: S.quiz.saveFailed };
+					if (code === "RETRY_LATER" && typeof out.retryAt === "string") words.RETRY_LATER = S.retryAt(when(out.retryAt));
 					status.innerHTML =
 						code === "SIGN_IN_REQUIRED"
 							? `${esc(S.quiz.signInToSubmit)} <a href="${esc(signInUrl())}">${esc(S.common.signIn)}</a>`
-							: esc(
-									code === "NO_ATTEMPTS_LEFT"
-										? S.quiz.noAttemptsLeft
-										: code === "RETRY_LATER" && typeof out.retryAt === "string"
-											? S.retryAt(when(out.retryAt))
-											: code === "BUSY"
-												? S.quiz.busy
-												: code === "ANSWER_EVERY_QUESTION"
-													? S.quiz.answerAll
-													: code === "FAILED" || code === "OFFLINE"
-														? S.quiz.saveFailed
-														: out.error?.message || S.quiz.saveFailed,
-								);
+							: esc(words[code] ?? (out.error?.message || S.quiz.saveFailed));
 					return;
 				}
 				const right = out.right as boolean[];
