@@ -17,7 +17,7 @@ GET routes take their input as query parameters. POST routes take a JSON body. E
 | `outline` | GET | `course`: course entry id | The course's published lessons in order (`id`, `title`, `slug`). Empty for a course that is not published |
 | `catalog` | GET | `courses`: up to 24 course ids, comma separated | `counts`: published lessons per course, 0 for a course that is not published |
 | `lessonCourses` | GET | `lesson`: lesson entry id | The published courses the lesson is in, Open courses first |
-| `quiz` | GET | `lesson`: lesson entry id | The lesson's quiz without the correct answers, for a published lesson in a published Open course. Any other lesson answers `SIGN_IN_REQUIRED` (use `memberQuiz` when signed in) |
+| `quiz` | GET | `lesson`: lesson entry id | The lesson's quiz for a published lesson in a published Open course: questions (`choice` and `multi` with their four answers, `true_false`, `short`, `blank` with `___` in the prompt), `mode`, `passMark` (graded quizzes with one) and `retake`. Never correct or accepted answers or explanations. Any other lesson answers `SIGN_IN_REQUIRED` (use `memberQuiz` when signed in) |
 | `health` | GET | none | The plugin id and version |
 
 ## Member routes (signed in)
@@ -26,13 +26,13 @@ The member is always the signed-in account. A member id in the input is never us
 
 | Route | Method | Input | Answers |
 | --- | --- | --- | --- |
-| `progress` | GET | `course` | The member's enrollment in that course, or null |
-| `myCourses` | GET | none | The member's courses, most recent first (up to 50): `done`, `total` and `finished` counted on the course's published lessons (the count the course page shows), and `available: false` for a course that was deleted or unpublished |
-| `memberQuiz` | GET | `lesson` | The quiz of any published lesson, without the correct answers |
+| `progress` | GET | `course` | The member's enrollment in that course, or null, and `quizzes`: for each lesson whose graded quiz has a pass mark, `passMark`, `best` and `passed` |
+| `myCourses` | GET | none | The member's courses, most recent first (up to 50): `done`, `total` and `finished` counted on the course's published lessons (the count the course page shows), and `available: false` for a course that was deleted or unpublished, and `quizzesPassed` |
+| `memberQuiz` | GET | `lesson` | The quiz of any published lesson, as `quiz` answers it, plus `mine`: `attempts`, `best` (percent), `passed` (null without a pass mark), `attemptsLeft` (null when unlimited) and `retryAt` (null when they may try now) |
 | `enroll` | POST | `course` | The new enrollment. `ALREADY_ENROLLED` the second time |
-| `completeLesson` | POST | `course`, `lesson` | The updated enrollment. `completedAt` is set the first time every published lesson of the outline is done (a draft, scheduled or deleted lesson does not hold the course open). `NOT_ENROLLED`, `LESSON_NOT_IN_COURSE` |
-| `submitQuiz` | POST | `quiz`, `answers`: one number per question (0 to 3) | `score`, `total` and which questions were right. Never the correct answers. Replaces the member's earlier try |
-| `eraseMember` | POST | none | Deletes the member's enrollments and quiz results. `done: false` means call it again |
+| `completeLesson` | POST | `course`, `lesson` | The updated enrollment. `completedAt` is set the first time every published lesson of the outline is done (a draft, scheduled or deleted lesson does not hold the course open). `NOT_ENROLLED`, `LESSON_NOT_IN_COURSE`, `QUIZ_NOT_PASSED` (the lesson's graded quiz has a pass mark the member's best score has not reached) |
+| `submitQuiz` | POST | `quiz`, `answers`: one per question: a number 0 to 3 (`choice`, `true_false`), a list of numbers (`multi`) or text (`short`, `blank`) | `score`, `total`, `percent`, which questions were right, `mode` and the member's standing as in `mine`. Only a practice quiz adds `review`: each question's right answer and explanation. Refused with `NO_ATTEMPTS_LEFT`, or `RETRY_LATER` with `retryAt` |
+| `eraseMember` | POST | none | Deletes the member's enrollments and quiz results with every past attempt. For quizzes with a maximum number of attempts or a wait it keeps only the attempts used and the last attempt time, so the limit still applies (the admin erase removes that too). `done: false` means call it again |
 
 A guest calling a member route gets `SIGN_IN_REQUIRED`.
 

@@ -1,3 +1,13 @@
+## 0.2.0
+
+Richer quizzes. No new permissions. Copy the site kit again after updating.
+
+- New      - Pass marks: members pass a graded quiz before its lesson counts as complete.
+- New      - Multiple answers, short answer and fill in the blank questions.
+- New      - Retakes: unlimited, a maximum number of attempts, or a wait between attempts.
+- New      - Practice mode with right answers and explanations after submitting.
+- Improve  - Quiz results shows best score and attempts; members see attempts left and passed quizzes.
+
 ## 0.1.1
 
 Fixes. No new permissions. Copy the site kit again after updating.

@@ -47,11 +47,16 @@ Ask the agent in plain words, for example: "Make a five-lesson Open course calle
 1. **Lessons.** `content_create` on `lms_lessons` for each lesson: `title`, `content` and an `excerpt` for search engines (a summary, never the lesson text). Then `content_publish` each one, or `content_schedule` to release one a week. Both need the entry's current `_rev`: call `content_get` first and pass its `_rev`, or EmDash refuses the call. Keep each lesson's entry id.
 2. **Course.** `content_create` on `lms_courses` with `title`, `excerpt`, `content`, `access` (`open` or `members`) and a cover image, then `content_get` for its `_rev` and `content_publish`. Keep the course id.
 3. **Outline.** `getOutline` with the course id returns the current lessons and a version token `rev` (empty for a new course). `setOutline` with `course`, `lessons` (the lesson ids in order) and that `rev`. Up to 15 lessons new to the outline per call; for a longer course, call `getOutline` and `setOutline` again with the next lessons added. A course holds up to 200.
-4. **Quizzes.** For each lesson, `saveQuiz` with `title`, `lesson` (the lesson id) and `questions`. Each question is either
-   - `{ "type": "choice", "prompt": "...", "answers": ["A", "B", "C", "D"], "correct": 2 }` (four answers, `correct` 0 to 3), or
-   - `{ "type": "true_false", "prompt": "...", "correct": 0 }` (0 true, 1 false).
+4. **Quizzes.** For each lesson, `saveQuiz` with `title`, `lesson` (the lesson id) and `questions`. Each question is one of:
+   - `{ "type": "choice", "prompt": "...", "answers": ["A", "B", "C", "D"], "correct": 2 }` (four answers, `correct` 0 to 3)
+   - `{ "type": "multi", "prompt": "...", "answers": ["A", "B", "C", "D"], "correct": [0, 2] }` (pick all that apply: every right index)
+   - `{ "type": "true_false", "prompt": "...", "correct": 0 }` (0 true, 1 false)
+   - `{ "type": "short", "prompt": "...", "accepted": ["Paris"] }` (typed answer; up to 10 accepted answers)
+   - `{ "type": "blank", "prompt": "Water boils at ___ degrees.", "accepted": ["100"] }` (the prompt marks the blank with `___`)
 
-   Up to 20 questions. A lesson that already has a quiz is refused. To change a quiz, `getQuiz` for its `rev`, then `saveQuiz` with `quiz`, `rev` and the full new questions.
+   Typed answers are compared without case and extra spaces. Any question can carry `"explain": "..."`, shown with the right answer after a practice quiz. Up to 20 questions. A lesson that already has a quiz is refused. To change a quiz, `getQuiz` for its `rev`, then `saveQuiz` with `quiz`, `rev` and the full new questions.
+
+   Quiz settings, all optional: `mode` (`graded`, the default, or `practice`: never blocks progress and shows the right answers after submitting), `passMark` (1 to 100 percent: a graded quiz with a pass mark must be passed before its lesson can be marked complete; `null` removes it) and `retake` (`{ "type": "unlimited" }`, `{ "type": "max", "attempts": 3 }` or `{ "type": "wait", "minutes": 60 }`). Leaving a setting out keeps what the quiz has.
 5. **Check.** `getOutline` again, and open `/courses/` on the site.
 
 Later, `listEnrollments` and `listResults` give the agent who enrolled and how they scored, 15 a page, with `find` for a name or email.

@@ -1007,6 +1007,60 @@
 	font-weight: 600;
 }
 
+/* Quiz: typed answers, multiple answers, practice review (0.2.0) */
+.learnomy-quiz__info {
+	color: var(--learnomy-muted);
+}
+
+.learnomy-q__hint {
+	font-size: 0.9rem;
+}
+
+.learnomy-field {
+	display: grid;
+	gap: 0.35rem;
+	font-size: 0.9rem;
+	font-weight: 600;
+}
+
+.learnomy-field input {
+	width: 100%;
+	min-height: var(--learnomy-tap);
+	padding: 0.55rem 0.8rem;
+	border: 1px solid var(--learnomy-border-strong);
+	border-radius: var(--learnomy-radius-sm);
+	background: var(--learnomy-bg);
+	color: var(--learnomy-text);
+	font: inherit;
+	font-weight: 400;
+}
+
+.learnomy-field input:focus-visible {
+	outline: 2px solid var(--learnomy-brand);
+	outline-offset: 2px;
+	border-color: var(--learnomy-brand);
+}
+
+.learnomy-blank {
+	display: inline-block;
+	width: 4em;
+	margin-inline: 0.25em;
+	border-block-end: 2px solid currentColor;
+	vertical-align: baseline;
+}
+
+.learnomy-q__review {
+	display: grid;
+	gap: 0.3rem;
+	padding: 0.75rem 0.9rem;
+	border-radius: var(--learnomy-radius-sm);
+	background: var(--learnomy-subtle);
+}
+
+.learnomy-step[data-learnomy-quiz="to-pass"] .learnomy-step__state {
+	color: var(--learnomy-text);
+}
+
 /* Your courses */
 .learnomy-mine {
 	display: grid;

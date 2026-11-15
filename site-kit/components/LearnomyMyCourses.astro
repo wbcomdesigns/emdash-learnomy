@@ -35,7 +35,7 @@ const Heading = `h${level}` as const;
 	import { S } from "../lib/learnomy-strings";
 
 	/** One row of myCourses: progress is counted on the course's published lessons, as on the course page. */
-	type Item = { course: string; slug: string; title: string; available: boolean; done: number; total: number; finished: boolean };
+	type Item = { course: string; slug: string; title: string; available: boolean; done: number; total: number; finished: boolean; quizzesPassed?: number };
 
 	function rowHtml(item: Item): string {
 		const title = esc(item.title || S.catalog.title);
@@ -48,7 +48,8 @@ const Heading = `h${level}` as const;
 			? `<span class="learnomy-badge learnomy-badge--done">${esc(S.mine.completed)}</span>`
 			: `<span>${esc(S.progress(item.done, item.total))}</span><span class="learnomy-progress__track" aria-hidden="true"><span class="learnomy-progress__fill" style="width:${percent(item.done, item.total)}%"></span></span>`;
 		const action = item.finished ? S.mine.review : S.mine.continue;
-		return `<li class="learnomy-row" data-learnomy-mine-row="${esc(item.course)}"><a class="learnomy-row__title" href="${esc(href)}">${title}</a><div class="learnomy-progress">${progress}</div><a class="learnomy-btn ${item.finished ? "learnomy-btn--quiet" : ""}" href="${esc(href)}" aria-label="${esc(`${action}: ${item.title}`)}">${esc(action)}</a></li>`;
+		const passed = item.quizzesPassed ? `<span class="learnomy-muted" data-learnomy-mine-passed>${esc(S.quizzesPassed(item.quizzesPassed))}</span>` : "";
+		return `<li class="learnomy-row" data-learnomy-mine-row="${esc(item.course)}"><a class="learnomy-row__title" href="${esc(href)}">${title}</a><div class="learnomy-progress">${progress}${passed}</div><a class="learnomy-btn ${item.finished ? "learnomy-btn--quiet" : ""}" href="${esc(href)}" aria-label="${esc(`${action}: ${item.title}`)}">${esc(action)}</a></li>`;
 	}
 
 	function eraseHtml(): string {

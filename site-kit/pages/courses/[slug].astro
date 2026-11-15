@@ -162,6 +162,10 @@ const coverUrl = (() => {
 			status.innerHTML = html;
 		};
 
+		/** Lessons whose quiz has a pass mark, with whether the member passed it (from the progress route). */
+		type PassStates = Record<string, { passMark: number; passed: boolean }>;
+		let quizzes: PassStates = {};
+
 		/** Paint the header and the lesson list for one state: guest (undefined), not enrolled (null) or enrolled. */
 		const paint = (enrollment: Enrollment | undefined) => {
 			enroll.removeAttribute("aria-busy");
@@ -188,7 +192,11 @@ const coverUrl = (() => {
 				step.dataset.learnomyState = state;
 				const label = step.querySelector<HTMLElement>("[data-learnomy-step-state]")!;
 				label.hidden = !enrolled;
-				label.textContent = state === "done" ? S.course.done : state === "current" ? S.course.current : S.course.todo;
+				const text = state === "done" ? S.course.done : state === "current" ? S.course.current : S.course.todo;
+				const quiz = quizzes[step.dataset.learnomyStep ?? ""];
+				label.textContent = quiz ? S.stepQuiz(text, quiz.passed ? S.course.quizPassed : S.course.quizToPass) : text;
+				if (quiz) step.dataset.learnomyQuiz = quiz.passed ? "passed" : "to-pass";
+				else delete step.dataset.learnomyQuiz;
 			});
 		};
 
@@ -210,6 +218,7 @@ const coverUrl = (() => {
 			}
 			if (result.error?.code === "ALREADY_ENROLLED") {
 				const again = await api(PLUGIN, `progress?course=${encodeURIComponent(course)}`);
+				quizzes = (again.quizzes as PassStates | undefined) ?? {};
 				if (again.ok) paint(again.enrollment as Enrollment);
 			}
 			say(esc(result.error?.message || S.common.failed), "error");
@@ -217,6 +226,7 @@ const coverUrl = (() => {
 
 		void (async () => {
 			const result = await api(PLUGIN, `progress?course=${encodeURIComponent(course)}`);
+			quizzes = (result.quizzes as PassStates | undefined) ?? {};
 			paint(result.ok ? (result.enrollment as Enrollment) : undefined);
 		})();
 	}

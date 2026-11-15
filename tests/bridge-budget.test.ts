@@ -13,29 +13,38 @@ const CAP = 20;
  * up here. The busy site: 520 members, 600 course outlines, one of 200 lessons, 30 courses and 30
  * lessons, a 20-question quiz, 15 members with enrollments and results on the first list page, and a
  * member with 500 enrollments and 500 attempts to erase. completeLesson retries once when another tab
- * wrote between its read and write: its ceiling is 5 (outline get, then getVersioned + compareAndSet
- * twice), never measured here because the test host runs one call at a time.
+ * wrote between its read and write: its ceiling is 7 (outline get, the lesson's quiz, the member's
+ * attempt, then getVersioned + compareAndSet twice), never measured here because the test host runs one call at a time.
  */
 // The public outline reads published lessons 100 a page until it has found every outline lesson:
 // 2 + 15 = 17 at most (a site with 1,500 or more published lessons); measured here on 262. catalog: 1 + 3 + 15 =
 // 19 at most; lessonCourses: 1 + 5 + 10 = 16 at most (the outline scan reads 500 outlines, 5 pages).
 // Once the lessons still missing fit in the calls left, they are looked up by id (findPublished), so a
 // draft lesson costs one call instead of the full scan. The public quiz route for a guest adds the
-// lessonCourses scan to its 2: 17 at most. myCourses: 2 + 3 + 14 = 19 at most. completeLesson: 1 + 15
-// (status of the lessons left, none once all are done) + 2 + 2 (one retry) = 20 at most.
+// lessonCourses scan to its 2: 17 at most. myCourses: 2 + 2 (the member's attempts and their quizzes,
+// 0.2.0) + 3 + 12 = 19 at most. completeLesson: 1 + 1 (the lesson's quiz) + 1 (the member's attempt
+// when that quiz has a pass mark) + 13 (status of the lessons left, none once all are done) + 2 + 2
+// (one retry) = 20 at most. progress: 2 + 3 (quizzes on a 200-lesson outline, 80 lessons a query) + 1
+// (attempts) = 6 at most. memberQuiz: 4 (with the kept retake record). submitQuiz: 5 (quiz, lesson, attempt getVersioned, the kept retake record, compareAndSet); with
+// a retake limit the kept record is raised before the attempt is saved: 1 compare-and-set, 2 more per
+// retry (3 tries), and listing it in the member's index (2 to 4 the first time, 2 on a retry after an admin erase): 18 at most. Erase rounds under contention: tests/erase-race.test.ts counts them (20 at most).
 const MEASURED: Record<string, number> = {
 	"route outline (200 lessons, 262 published on the site)": 5,
 	"route quiz (guest, lesson in no course, 600 outlines)": 7,
-	"route memberQuiz (20 questions)": 2,
+	"route memberQuiz (20 questions)": 4,
+	"route completeLesson (graded quiz with a pass mark, not passed)": 4,
+	"route completeLesson (graded quiz with a pass mark, passed)": 8,
+	"route progress (3 pass-mark quizzes on 200 lessons)": 6,
 	"route outline (a draft lesson in the outline, 262 published on the site)": 5,
 	"route outline (3 lessons and a draft, 262 published on the site)": 4,
-	"route completeLesson (last published lesson, a draft left in the outline)": 5,
+	"route completeLesson (last published lesson, a draft left in the outline)": 6,
 	"route enroll": 2,
 	"route enroll (second time)": 2,
-	"route completeLesson (last lesson of 200)": 3,
-	"route completeLesson (already done)": 2,
-	"route completeLesson (not in outline)": 1,
-	"route submitQuiz (20 questions)": 3,
+	"route completeLesson (last lesson of 200)": 4,
+	"route completeLesson (already done)": 4,
+	"route completeLesson (not in outline)": 2,
+	"route submitQuiz (20 questions)": 5,
+	"route submitQuiz (retake limit, keeps the count)": 8,
 	"route eraseMember (500 + 500 rows, each round)": 18,
 	"admin page_load /outline": 3,
 	"admin page_load /outline (opened from the lesson panel)": 14,
@@ -80,8 +89,8 @@ const MEASURED: Record<string, number> = {
 	"tool saveQuiz (new, on a lesson)": 3,
 	"route catalog (24 courses)": 5,
 	"route lessonCourses (600 outlines)": 7,
-	"route progress": 1,
-	"route myCourses (50 enrollments)": 3,
+	"route progress": 6,
+	"route myCourses (50 enrollments)": 5,
 	"hook page:metadata (200 lessons, 262 published on the site)": 5,
 	"hook plugin:install": 3, // 2 measured: the test host already ran install at start; 3 on a site with no marker
 	"hook plugin:activate (marker set)": 2,
@@ -119,6 +128,8 @@ describe("bridge calls per entry point, worst case", () => {
 		for (let i = 0; i < 520; i += 1) members.push((await s.rt.fixtures.user({ email: `m${i}@example.com`, name: `Member ${i}`, role: "subscriber" })).id);
 		q20Lesson = await quizOnLesson(s, "q20", "published", { ...QUIZ, questions: Array.from({ length: 20 }, () => QUIZ.questions[0]) });
 		await quizOnLesson(s, "q1");
+		// Graded quizzes with a pass mark in each 80-lesson chunk of the 200-lesson outline (0.2.0).
+		for (const i of [0, 100, 150]) await s.rt.fixtures.plugin.storage("quizzes", `pm${i}`, { ...QUIZ, lessonKey: lessons[i]!.id, passMark: 50 });
 		for (let i = 0; i < 15; i += 1) {
 			await s.rt.fixtures.plugin.storage("enrollments", `${members[i]}:${course}`, { memberId: members[i], courseKey: course, courseTitle: "Course A", startedAt: at(1000 + i), updatedAt: at(1000 + i), completedAt: null, done: [] });
 			await s.rt.fixtures.plugin.storage("attempts", `${members[i]}:q1`, { memberId: members[i], quizId: "q1", lessonKey: "", score: 1, total: 2, answers: [0, 0], submittedAt: at(1000 + i) });
@@ -137,6 +148,10 @@ describe("bridge calls per entry point, worst case", () => {
 		expect((await measure("route enroll", () => s.post("enroll", { course }, ana))).ok).toBe(true);
 		await measure("route enroll (second time)", () => s.post("enroll", { course }, ana));
 		await measure("route completeLesson (not in outline)", () => s.post("completeLesson", { course, lesson: "nope" }, ana));
+		expect((await measure("route completeLesson (graded quiz with a pass mark, not passed)", () => s.post("completeLesson", { course, lesson: lessons[150]!.id }, ana))).error.code).toBe("QUIZ_NOT_PASSED");
+		await s.post("submitQuiz", { quiz: "pm150", answers: [2, 0] }, ana);
+		expect((await measure("route completeLesson (graded quiz with a pass mark, passed)", () => s.post("completeLesson", { course, lesson: lessons[150]!.id }, ana))).ok).toBe(true);
+		expect(Object.keys((await measure("route progress (3 pass-mark quizzes on 200 lessons)", () => s.get("progress", { course }, ana))).quizzes)).toHaveLength(3);
 		const row = await s.rt.inspect.storage.get<Record<string, unknown>>("enrollments", `ana:${course}`);
 		await s.rt.fixtures.plugin.storage("enrollments", `ana:${course}`, { ...row, done: lessons.slice(0, 199).map((l) => l.id) });
 		const last = await measure("route completeLesson (last lesson of 200)", () => s.post("completeLesson", { course, lesson: lessons[199]!.id }, ana));
@@ -157,6 +172,8 @@ describe("bridge calls per entry point, worst case", () => {
 		await s.rt.fixtures.plugin.storage("outlines", shortCourse, { courseKey: shortCourse, courseTitle: "Course 00", lessons: [...loose.slice(27, 30).map((id) => ({ id, title: "L" })), { id: draft, title: "D" }], updatedAt: "2026-11-15T00:00:00.000Z", rev: "r" });
 		expect((await measure("route outline (3 lessons and a draft, 262 published on the site)", () => s.get("outline", { course: shortCourse }))).lessons).toHaveLength(3);
 		await measure("route submitQuiz (20 questions)", () => s.post("submitQuiz", { quiz: "q20", answers: Array(20).fill(2) }, ana));
+		await quizOnLesson(s, "lim", "published", { ...QUIZ, retake: { type: "max", attempts: 5 } });
+		expect((await measure("route submitQuiz (retake limit, keeps the count)", () => s.post("submitQuiz", { quiz: "lim", answers: [2, 0] }, ana))).attemptsLeft).toBe(4);
 		const ids = [course, ...Array.from({ length: 23 }, (_, i) => `other-${i}`)].join(",");
 		expect((await measure("route catalog (24 courses)", () => s.get("catalog", { courses: ids }))).counts[course]).toBe(200);
 		const holders = await measure("route lessonCourses (600 outlines)", () => s.get("lessonCourses", { lesson: lessons[0]!.id }));

@@ -138,7 +138,7 @@ describe("kit reads: catalog, progress, myCourses", () => {
 		const s = await open();
 		const a = await courseWithOutline(s, 3, "Course A");
 		const b = await courseWithOutline(s, 2, "Course B");
-		expect(await s.get("progress", { course: a.course }, ana)).toEqual({ ok: true, enrollment: null });
+		expect(await s.get("progress", { course: a.course }, ana)).toEqual({ ok: true, enrollment: null, quizzes: {} });
 		await s.post("enroll", { course: a.course }, ana);
 		await s.post("enroll", { course: b.course }, ana);
 		await s.post("enroll", { course: a.course }, ben);
@@ -288,11 +288,14 @@ describe("quiz", () => {
 				id: "q1",
 				title: "Check yourself",
 				lessonKey: lesson,
+				mode: "graded",
+				retake: { type: "unlimited" },
 				questions: [
 					{ type: "choice", prompt: "Pick C", answers: ["A", "B", "C", "D"] },
 					{ type: "true_false", prompt: "The sky is blue" },
 				],
 			},
+			mine: { attempts: 0, best: null, passed: null, attemptsLeft: null, retryAt: null },
 		});
 		expect(JSON.stringify(out)).not.toContain("correct");
 		expect((await s.get("memberQuiz", { lesson: "none" }, ana)).error?.code).toBe("QUIZ_NOT_FOUND");
@@ -330,14 +333,16 @@ describe("quiz", () => {
 });
 
 describe("submitQuiz", () => {
-	it("scores on the server and replaces the member's attempt", async () => {
+	it("scores on the server and keeps one attempt row per member and quiz, with the latest answers", async () => {
 		const s = await open();
 		await quizOnLesson(s);
-		expect(await s.post("submitQuiz", { quiz: "q1", answers: [1, 0] }, ana)).toEqual({ ok: true, score: 1, total: 2, right: [false, true] });
-		expect(await s.post("submitQuiz", { quiz: "q1", answers: [2, 0] }, ana)).toEqual({ ok: true, score: 2, total: 2, right: [true, true] });
+		const first = await s.post("submitQuiz", { quiz: "q1", answers: [1, 0] }, ana);
+		expect(first).toMatchObject({ ok: true, score: 1, total: 2, right: [false, true], percent: 50, attempts: 1, best: 50, passed: null });
+		expect(first).not.toHaveProperty("review");
+		expect(await s.post("submitQuiz", { quiz: "q1", answers: [2, 0] }, ana)).toMatchObject({ ok: true, score: 2, total: 2, right: [true, true], attempts: 2, best: 100 });
 		const attempts = await s.rt.inspect.storage.list<{ score: number }>("attempts");
 		expect(attempts).toHaveLength(1);
-		expect(attempts[0]).toMatchObject({ id: "ana:q1", data: { score: 2, answers: [2, 0] } });
+		expect(attempts[0]).toMatchObject({ id: "ana:q1", data: { score: 2, answers: [2, 0], attempts: 2, best: 100 } });
 	});
 
 	it("refuses missing answers and an out-of-range true/false answer", async () => {

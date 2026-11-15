@@ -1,4 +1,5 @@
 import type { Attempt, Enrollment } from "../schemas";
+import { readAttempt } from "./attempts";
 import { countProgress, type Ctx } from "./common";
 
 /**
@@ -85,8 +86,8 @@ export async function listEnrollments(ctx: Ctx, opts: ListOpts): Promise<Listed<
 	};
 }
 
-/** Quiz results, newest first, with names and quiz titles. At most 18 calls. */
-export async function listResults(ctx: Ctx, opts: ListOpts): Promise<Listed<Attempt & { id: string; memberName: string; quizTitle: string }>> {
+/** Quiz results, newest first, with names and quiz titles; each row carries attempts and best (readAttempt). At most 18 calls. */
+export async function listResults(ctx: Ctx, opts: ListOpts): Promise<Listed<Attempt & { id: string; memberName: string; quizTitle: string }> & { matches?: Array<{ id: string; name: string }> }> {
 	const found = opts.find ? await findMembers(ctx, opts.find) : null;
 	if (found && found.ids.length === 0) return { ok: true, total: 0, items: [], partial: found.partial };
 	// With Find, the total and the pages are the matches only, and Next pages through all of them.
@@ -100,7 +101,10 @@ export async function listResults(ctx: Ctx, opts: ListOpts): Promise<Listed<Atte
 			...(opts.cursor ? { cursor: opts.cursor } : {}),
 		}),
 	]);
-	const rows = page.items.map((item) => ({ ...(item.data as Attempt), id: item.id }));
+	const rows = page.items.flatMap((item) => {
+		const row = readAttempt(item.data);
+		return row ? [{ ...row, id: item.id }] : [];
+	});
 	const [names, quizzes] = await Promise.all([
 		namesFor(ctx, rows.map((row) => row.memberId), found?.names),
 		rows.length ? ctx.storage.quizzes!.getMany([...new Set(rows.map((row) => row.quizId))]) : new Map(),
@@ -114,6 +118,9 @@ export async function listResults(ctx: Ctx, opts: ListOpts): Promise<Listed<Atte
 			quizTitle: ((quizzes.get(row.quizId) as { title?: string } | undefined)?.title ?? "Deleted quiz"),
 		})),
 		cursor: page.hasMore ? page.cursor : undefined,
+		// Members Find matched who have no results: a member who erased their own data keeps attempt
+		// counts on limited quizzes, and the admin erase is how the owner resets them.
+		...(found && rows.length === 0 && !opts.cursor ? { matches: found.ids.slice(0, 5).map((id) => ({ id, name: found.names.get(id) ?? id })) } : {}),
 		partial: found?.partial ?? false,
 	};
 }

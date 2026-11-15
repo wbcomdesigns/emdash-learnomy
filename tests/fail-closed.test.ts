@@ -15,6 +15,7 @@ function bigSite(outline: string[], done: string[]) {
 			get: async () => null,
 		},
 		storage: {
+			quizzes: { query: async () => ({ items: [] }) },
 			outlines: { get: async () => ({ courseKey: "c", courseTitle: "C", lessons: outline.map((id) => ({ id, title: id })), updatedAt: "x", rev: "r" }) },
 			enrollments: {
 				getVersioned: async () => ({ value: row, revision: "1" }),

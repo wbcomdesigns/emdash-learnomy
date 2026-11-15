@@ -6,7 +6,8 @@ Learnomy adds free courses to your EmDash site. Write courses and lessons in EmD
 - A Course outline page: pick a course, add lessons by title, set their order.
 - Open courses anyone can read, or Members courses for signed-in people.
 - Free enrollment, Mark complete, progress and a finished state.
-- One quiz per lesson: multiple choice or true or false, up to 20 questions, scored on your site so the right answers are never sent early.
+- One quiz per lesson, up to 20 questions: multiple choice, multiple answers, true or false, short answer or fill in the blank, scored on your site so the right answers are never sent early.
+- Pass marks, retake limits and practice quizzes that show the right answers and your explanations after submitting.
 - Your courses for members, on your site's account page.
 - Enrollments and Quiz results lists with names, and erase for one member.
 - A dashboard card, and MCP tools so an AI agent can build a whole course.
