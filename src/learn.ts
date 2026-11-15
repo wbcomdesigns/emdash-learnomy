@@ -13,7 +13,7 @@ import {
 	type Outline,
 	type Quiz,
 } from "./schemas";
-import { BAD_INPUT, countProgress, type Ctx, fail, nowIso, parse, titleOf } from "./lib/common";
+import { BAD_INPUT, countProgress, type Ctx, fail, nowIso, parse, SIGN_IN, titleOf } from "./lib/common";
 import { gates, grade, hasPassed, MAX_HISTORY, percentOf, readAttempt, retakeState, reviewOf } from "./lib/attempts";
 import { newToken } from "./lib/certificates";
 import { coursesOf, getOutline as loadOutline } from "./lib/outlines";
@@ -21,7 +21,6 @@ import { asRecord, asString } from "./util";
 
 type RouteCtx = { input: unknown; user?: { id: string } };
 
-const SIGN_IN = fail("SIGN_IN_REQUIRED", "Sign in to continue.");
 
 const enrollmentId = (memberId: string, courseKey: string) => `${memberId}:${courseKey}`;
 

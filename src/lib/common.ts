@@ -5,6 +5,7 @@ export type Ctx = PluginContext;
 export type Fail = { ok: false; error: { code: string; message: string } };
 
 export const fail = (code: string, message: string): Fail => ({ ok: false, error: { code, message } });
+export const SIGN_IN = fail("SIGN_IN_REQUIRED", "Sign in to continue.");
 export const BAD_INPUT = fail("INVALID_INPUT", "Something in the request is missing or not valid.");
 export const STALE = (what: string) => fail("STALE", `Someone else changed this ${what} since you opened it. Reload it and try again.`);
 

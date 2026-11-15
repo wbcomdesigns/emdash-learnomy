@@ -46,7 +46,7 @@ describe("certificate issue", () => {
 	it("two members finishing get different links", async () => {
 		const s = (site = await openSite());
 		const course = await finish(s, ana);
-		const { lessons } = { lessons: (await s.rt.inspect.storage.get<Record<string, any>>("outlines", course))!.lessons };
+		const { lessons } = (await s.rt.inspect.storage.get<Record<string, any>>("outlines", course))!;
 		await s.post("enroll", { course }, ben);
 		for (const lesson of lessons) await s.post("completeLesson", { course, lesson: lesson.id }, ben);
 		expect((await row(s, `ana:${course}`))!.certToken).not.toBe((await row(s, `ben:${course}`))!.certToken);

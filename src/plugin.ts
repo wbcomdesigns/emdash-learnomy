@@ -3,7 +3,7 @@ import type { RouteEntry, SandboxedPlugin } from "emdash/plugin";
 import { handleAdmin } from "./admin";
 import { catalog, completeLesson, courseGraph, enroll, eraseMember, lessonCourses, memberQuiz, myCourses, outline, progress, quiz, submitQuiz } from "./learn";
 import { certificate, myCertificates, setCertificate } from "./lib/certificates";
-import { BAD_INPUT, fail, parse } from "./lib/common";
+import { BAD_INPUT, parse, SIGN_IN } from "./lib/common";
 import { handlePanel } from "./panel";
 import { setCertificateInput } from "./schemas";
 import { DAILY, daily, setUp } from "./tasks";
@@ -13,7 +13,6 @@ import { mcpTools, toolRoutes } from "./tools";
 // member routes read the host-verified routeCtx.user.
 const MEMBER = "content:read";
 const ADMIN = "plugins:manage";
-const SIGN_IN = fail("SIGN_IN_REQUIRED", "Sign in to continue.");
 
 const tools: Record<string, RouteEntry> = Object.fromEntries(
 	Object.entries(toolRoutes).map(([name, run]) => [name, { permission: ADMIN, methods: ["POST"], handler: async (routeCtx, ctx) => run(routeCtx, ctx) }]),
