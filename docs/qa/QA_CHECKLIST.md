@@ -11,9 +11,9 @@ Run on a standard EmDash 1.5 blog site (`npm create emdash@latest -- --template 
 - [ ] O5 Unpublish a lesson in the outline: the outline marks it, the site hides it; a second tab saving the same outline is refused (version token).
 - [ ] O6 Quizzes page empty state shows Create quiz. Create a quiz with one choice question (four answers) and one true/false question; edit a question; a 21st question is refused with a clear message.
 - [ ] O7 Two tabs edit the same quiz: the second save is refused (version token) and says why.
-- [ ] O8 Lesson editor panel lists quizzes by title; pick one; the lesson saves `quiz_id`; never shows an id.
+- [ ] O8 On the Quizzes page pick the quiz's lesson by title; a second quiz on the same lesson is refused; the lesson editor panel shows the quiz with a link; no id anywhere.
 - [ ] O9 Delete a quiz attached to a lesson: the lesson shows "No quiz on this lesson" on the site, no error.
-- [ ] O10 Enrollments list: member names (not ids), 25 rows, Find by name, Next/Previous, empty state.
+- [ ] O10 Enrollments list: member names (not ids), 15 rows (call budget), Find by name, Next/Previous, empty state.
 - [ ] O11 Quiz results list: names, score, date, same paging, empty state.
 - [ ] O12 Dashboard card shows courses, enrollments and attempts counts, with New course and Course outline links.
 - [ ] O15 Lesson editor panel shows the courses the lesson is in, each linking to its outline.
@@ -27,6 +27,7 @@ Run on a standard EmDash 1.5 blog site (`npm create emdash@latest -- --template 
 - [ ] G3 Members course lesson: page HTML carries the title only; a sign-in prompt says how to join. Body absent from page source, cached page, search, sitemap, RSS and meta tags.*
 - [ ] G4 Enroll button on any course asks the guest to sign in; no error.
 - [ ] G5 Quiz route for a lesson returns questions without correct answers (check the network response).*
+- [ ] G7 Outline and quiz routes return nothing for a draft course or draft lesson; draft lesson titles never appear.
 - [ ] G6 Course page carries valid schema.org `Course` structured data.
 
 ## Member (invited, signed in)
