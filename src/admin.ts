@@ -537,8 +537,8 @@ async function renderEnrollments(ctx: Ctx, view: View, toast?: Toast): Promise<B
 	const rows = listed.items.map((e) => ({
 		member: e.memberName,
 		// Progress rides in the course cell (four columns clip at 390). Same count as the member's own
-		// screens (countProgress, on the outline here); a member who finished once stays finished.
-		course: `${e.courseTitle || "Untitled course"}: ${e.completedAt || e.progress.finished ? "finished" : `${e.progress.done} of ${e.progress.total} lessons`}`,
+		// screens, on the outline's published lessons: a lesson added after they finished is one more to do.
+		course: `${e.courseTitle || "Untitled course"}: ${e.progress.finished ? "finished" : `${e.progress.done} of ${e.progress.total} lessons`}`,
 		erase: manageMenu(e.memberId, e.memberName, "enrollments"),
 	}));
 	return {

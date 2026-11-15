@@ -225,7 +225,7 @@ describe("A quiz picks its lesson", () => {
 });
 
 describe("Enrollments and Quiz results", () => {
-	it("show names, find by name and email, page 15 at a time, and erase one member", async () => {
+	it("show names, find by name and email, page 10 at a time, and erase one member", async () => {
 		const s = (site = await openSite());
 		const ana = await s.rt.fixtures.user({ email: "ana@example.com", name: "Ana Lopez", role: "subscriber" });
 		const ben = await s.rt.fixtures.user({ email: "ben@example.com", name: "Ben Ito", role: "subscriber" });
@@ -238,21 +238,21 @@ describe("Enrollments and Quiz results", () => {
 		await s.rt.fixtures.plugin.storage("attempts", `${ana.id}:q1`, { memberId: ana.id, quizId: "q1", lessonKey: "", score: 1, total: 2, answers: [2, 1], submittedAt: at(1) });
 		const admin = s.rt.admin;
 		let page = (await admin.loadPage("/enrollments", { user: root })) as R;
-		expect(table(page)!.rows).toHaveLength(15);
+		expect(table(page)!.rows).toHaveLength(10);
 		expect(table(page)!.rows[0]).toMatchObject({ member: "Ben Ito", course: "Course 19: 0 of 0 lessons" });
 		expect(visible(page)).not.toContain(ana.id);
 		const next = page.blocks.find((b) => b.type === "actions")!.elements.find((e: { label: string }) => e.label === "Next page");
 		page = (await admin.act("/enrollments", "enrollments_page", { value: next.value, user: root })) as R;
-		expect(table(page)!.rows).toHaveLength(5);
+		expect(table(page)!.rows).toHaveLength(10);
 		page = (await admin.submit("/enrollments", "enrollments_find", { find: "ito" }, { user: root })) as R;
 		expect(table(page)!.rows.map((r: { member: string }) => r.member)).toEqual(["Ben Ito", "Ben Ito"]);
 		page = (await admin.submit("/enrollments", "enrollments_find", { find: "ana@example.com" }, { user: root })) as R;
-		expect(table(page)!.rows).toHaveLength(15);
+		expect(table(page)!.rows).toHaveLength(10);
 		// The count is the matches, not the site-wide total, and Next pages through the rest of them.
 		expect(page.blocks.find((b) => b.type === "stats")!.items[0]).toMatchObject({ label: "Matches", value: 18 });
 		const findNext = page.blocks.find((b) => b.type === "actions")!.elements.find((e: { label: string }) => e.label === "Next page");
 		const rest = (await admin.act("/enrollments", "enrollments_page", { value: findNext.value, user: root })) as R;
-		expect(table(rest)!.rows.map((r: { member: string }) => r.member)).toEqual(["Ana Lopez", "Ana Lopez", "Ana Lopez"]);
+		expect(table(rest)!.rows.map((r: { member: string }) => r.member)).toEqual(Array(8).fill("Ana Lopez"));
 		expect(rest.blocks.find((b) => b.type === "stats")!.items[0]).toMatchObject({ label: "Matches", value: 18 });
 		const results0 = (await admin.submit("/results", "results_find", { find: "ito" }, { user: root })) as R;
 		expect(results0.blocks.find((b) => b.type === "stats")!.items[0]).toMatchObject({ label: "Matches", value: 0 });
@@ -274,6 +274,31 @@ describe("Enrollments and Quiz results", () => {
 		const a = await courseWithOutline(s, 2, "Course A");
 		await s.rt.fixtures.plugin.storage("enrollments", `ana:${a.course}`, { memberId: "ana", courseKey: a.course, courseTitle: "Course A", startedAt: "2026-11-01T00:00:00.000Z", updatedAt: "2026-11-01T00:00:00.000Z", completedAt: null, done: ["gone-1", "gone-2", a.lessons[0]!.id] });
 		expect(table((await s.rt.admin.loadPage("/enrollments", { user: root })) as R)!.rows[0]).toMatchObject({ course: "Course A: 1 of 2 lessons" });
+	});
+
+	it("counts published lessons only, the member's own number: a draft never holds a course open (#39)", async () => {
+		const s = (site = await openSite());
+		const ana = await s.rt.fixtures.user({ email: "ana@example.com", name: "Ana Lopez", role: "subscriber" });
+		const a = await courseWithOutline(s, 3, "Course A");
+		const draft = await s.entry("lms_lessons", "Course A draft", "draft");
+		await s.rt.fixtures.plugin.storage("outlines", a.course, { courseKey: a.course, courseTitle: "Course A", lessons: [...a.lessons, { id: draft, title: "Course A draft" }], updatedAt: "2026-11-15T00:00:00.000Z", rev: "r2" });
+		const row = (done: string[], completedAt: string | null = null) =>
+			s.rt.fixtures.plugin.storage("enrollments", `${ana.id}:${a.course}`, { memberId: ana.id, courseKey: a.course, courseTitle: "Course A", startedAt: "2026-11-01T00:00:00.000Z", updatedAt: "2026-11-01T00:00:00.000Z", completedAt, done });
+		const admin = async () => table((await s.rt.admin.loadPage("/enrollments", { user: root })) as R)!.rows[0].course;
+		const mine = async () => ((await s.get("myCourses", {}, member(ana.id))).items as Array<Record<string, unknown>>)[0];
+		const tool = async () => (await s.rt.transport.invokeRoute("tools/listEnrollments", {}, { method: "POST", user: root } as never) as { items: Array<{ progress: unknown }> }).items[0]!.progress;
+		await row([a.lessons[0]!.id]);
+		expect(await admin()).toBe("Course A: 1 of 3 lessons");
+		expect(await mine()).toMatchObject({ done: 1, total: 3, finished: false });
+		expect(await tool()).toEqual({ done: 1, total: 3, finished: false });
+		await row(a.lessons.map((l) => l.id), "2026-11-02T00:00:00.000Z");
+		expect(await admin()).toBe("Course A: finished");
+		expect(await mine()).toMatchObject({ finished: true });
+		// A lesson published after the member finished is one more to do on every screen.
+		const added = await s.entry("lms_lessons", "Course A extra");
+		await s.rt.fixtures.plugin.storage("outlines", a.course, { courseKey: a.course, courseTitle: "Course A", lessons: [...a.lessons, { id: added, title: "Course A extra" }], updatedAt: "2026-11-15T00:00:00.000Z", rev: "r3" });
+		expect(await admin()).toBe("Course A: 3 of 4 lessons");
+		expect(await mine()).toMatchObject({ done: 3, total: 4, finished: false });
 	});
 
 	it("a member with quiz results and no enrollment can be erased from Quiz results, which it returns to (M3)", async () => {

@@ -78,6 +78,6 @@ export const mcpTools: Record<string, SandboxedMcpTool> = {
 		destructive: true,
 	},
 	deleteQuiz: { description: "Delete a quiz. Pass its rev from listQuizzes or getQuiz.", route: "tools/deleteQuiz", input: schema(deleteQuizInput), destructive: true },
-	listEnrollments: { description: "List enrollments newest first with member names and progress, 15 a page; find filters by member name or email.", route: "tools/listEnrollments", input: schema(listInput) },
-	listResults: { description: "List quiz results newest first with member names, quiz titles, latest score, best percent and number of attempts, 15 a page; find filters by member name or email.", route: "tools/listResults", input: schema(listInput) },
+	listEnrollments: { description: "List enrollments newest first with member names and progress (published lessons only, as the member sees it), 10 a page; find filters by member name or email.", route: "tools/listEnrollments", input: schema(listInput) },
+	listResults: { description: "List quiz results newest first with member names, quiz titles, latest score, best percent and number of attempts, 10 a page; find filters by member name or email.", route: "tools/listResults", input: schema(listInput) },
 };

@@ -25,8 +25,9 @@ export const titleOf = (item: { data: unknown; slug?: string | null } | null | u
 
 /**
  * One progress count for every screen: the done lessons among `lessons`, of `lessons`, finished when
- * every one is done. Visitor screens pass the outline's published lessons; the admin list passes the
- * outline. A done lesson later removed from the outline never counts, so it never reads "7 of 5".
+ * every one is done. Every screen passes the outline's published lessons (publishedProgress in
+ * learn.ts; the kit counts the same way). A done lesson later removed from the outline never counts,
+ * so it never reads "7 of 5".
  */
 export function countProgress(done: string[], lessons: string[]) {
 	const set = new Set(done);
