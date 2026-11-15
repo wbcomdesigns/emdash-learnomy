@@ -1,4 +1,4 @@
-# Learnomy QA checklist (0.1.0)
+# Learnomy QA checklist (0.1.0, with 0.2.0 cases)
 
 Run on a standard EmDash 1.5 blog site (`npm create emdash@latest -- --template blog --platform node`), plugin installed from the registry, kit copied from the release tag by following `docs/install/` word for word. Repeat the starred cases on the Cloudflare testbed. Every screen at 1440, 768 and 390, light and dark, keyboard only once. Read every screenshot.
 
@@ -52,6 +52,23 @@ Run on a standard EmDash 1.5 blog site (`npm create emdash@latest -- --template 
 - [ ] A1 With EmDash's MCP (token with content scopes) an agent creates a course and three lessons and publishes them.
 - [ ] A2 After the admin turns on Learnomy's MCP tools, an agent with `mcp:tools:<pluginId>` sets the outline and saves a quiz; the site shows both. `deleteQuiz` is marked destructive.
 - [ ] A3 Course page JSON-LD validates as `Course` with lessons in `hasPart`.
+
+## Quizzes 0.2.0 (#28 to #31)
+
+- [ ] Q1 Owner: on a quiz, Save settings with Graded, pass mark 70, Retakes "A maximum number of attempts" 3: the line under the title reads "Graded, pass mark 70%...; at most 3 attempts." A pass mark of 120 is refused with a clear message. Switching to Practice clears the pass mark.
+- [ ] Q2 Owner: add one question of each kind (multiple choice, multiple answers with two ticked, true or false, short answer with two accepted answers, fill in the blank). Each kind shows only its own fields. A blank question without `___` and a multiple-answers question with nothing ticked are refused. The table shows the kind and the correct or accepted answers. A 21st question is still refused.
+- [ ] Q3 Guest and member: the quiz network responses (`quiz`, `memberQuiz`) carry no correct or accepted answers and no explanations, on graded and practice quizzes.*
+- [ ] Q4 Member, graded with a pass mark: Mark complete before passing is refused with "Pass the quiz on this lesson first"; a failing submit shows the score, percent and Not passed yet; a passing submit shows Passed; Mark complete then works. A worse later attempt keeps the pass (best score counts).*
+- [ ] Q5 Member: the course page lesson list shows "Quiz to pass" then "Quiz passed"; Your courses shows "1 quiz passed".
+- [ ] Q6 Member, maximum attempts: the quiz shows attempts left; after the last one the submit button goes and "You have used every attempt on this quiz." shows; a submit through the route is refused with `NO_ATTEMPTS_LEFT`.
+- [ ] Q7 Member, wait before retry: after a submit the quiz says "You can try again after <time>" and the button goes; a submit through the route is refused with `RETRY_LATER` and `retryAt`; after the wait it is accepted.
+- [ ] Q8 Member, practice quiz: after submitting, each question shows the right answer and the owner's explanation; Mark complete works without passing. A graded quiz never shows them.
+- [ ] Q9 Short and blank answers: "  pARIS " and "One   Hundred" are marked right against "Paris" and "one hundred".
+- [ ] Q10 Owner: Quiz results shows Best and Attempts; erasing the member removes their attempts.
+- [ ] Q14 Member on a max-attempts quiz uses every attempt, then Erase my course data: the quiz still shows no attempts left and a submit is refused; on a wait quiz the wait still applies. Owner erases the member from Quiz results: the member can take the quiz again.
+- [ ] Q11 Upgrade: on a site with 0.1.x quizzes and results, update to 0.2.0 with no other step: the old quizzes show and score as graded with unlimited retakes, Quiz results shows each old result as 1 attempt with its best score, and the next submit keeps the old score as the first history entry.*
+- [ ] Q12 Agents: `saveQuiz` with every question type, mode, pass mark and retake; `getQuiz` returns them; leaving them out keeps them; `passMark: null` removes it.
+- [ ] Q13 Quiz with each type at 1440, 768 and 390, light and dark, keyboard only: every question is a fieldset with a legend, multiple answers are checkboxes with the "Choose every answer that applies" hint, text answers have a label, the score and pass state are announced.
 
 ## Budget and build
 

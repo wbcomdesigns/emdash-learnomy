@@ -67,8 +67,8 @@ Everything an owner does happens in the EmDash admin, with no code. Courses and 
 | Lesson | EmDash entry in `lms_lessons` | Title, excerpt (used for SEO; never the body), body | Publish date per lesson through EmDash scheduling |
 | Outline | Plugin storage `outlines`, id = course entry id | courseKey, course title, ordered lessons (`{id, title}`, at most 200), updatedAt, version token | Sections (0.2.0 or later) |
 | Enrollment | Plugin storage `enrollments`, id `${memberId}:${courseKey}` | memberId, courseKey, course title, startedAt, updatedAt, completedAt, completed lesson ids (at most 500) | `source` for grants and imports |
-| Quiz | Plugin storage `quizzes` | Title, lesson key, questions embedded (type `choice` or `true_false`, prompt, answers, correct index), updatedAt, version token | Practice mode, passing score, bank (0.2.0) |
-| Attempt | Plugin storage `attempts`, id `${memberId}:${quizId}` | memberId, quizId, lessonKey, score, total, answers, submittedAt | `mode` |
+| Quiz | Plugin storage `quizzes` | Title, lesson key, questions embedded (type `choice` or `true_false`, prompt, answers, correct index), updatedAt, version token | 0.2.0: mode, pass mark, retake policy, question types `multi`, `short`, `blank`, explanations (see "0.2.0"). Bank later |
+| Attempt | Plugin storage `attempts`, id `${memberId}:${quizId}` | memberId, quizId, lessonKey, score, total, answers, submittedAt | 0.2.0: attempts, best, history (see "0.2.0") |
 
 One row per member and course means progress is one get and one put, never a 100-row query (D). Indexes: `enrollments` `["startedAt"]`, `["courseKey","startedAt"]`, `["memberId","updatedAt"]`; `attempts` `["submittedAt"]`, `["quizId","submittedAt"]`, `["memberId","submittedAt"]`; `quizzes` `["updatedAt"]`, `["lessonKey"]`; `outlines` `["updatedAt"]`. Counts use `count()`.
 
@@ -110,6 +110,28 @@ Each screen has loading, empty and failed states, at 1440, 768 and 390, light an
 | Your courses | You have not enrolled yet | Could not load; erase asks once, then confirms |
 | Quizzes (admin) | No quizzes yet, with Create quiz | A refused save says what was wrong |
 | Enrollments, Quiz results | None yet | Could not load |
+
+## 0.2.0: richer quizzes (owner, 2026-11-15)
+
+Decided by the owner on 2026-11-15 in issues #28 to #31. No new storage collection, no new permission, no new option beyond the per-quiz fields below.
+
+| Question | Decision |
+| --- | --- |
+| Passing score (#28) | The owner sets a pass mark per quiz, in percent. A lesson with a graded quiz that has a pass mark counts as complete only when the member passes; a course finishes only when all its lessons are complete, so all its quizzes are passed. Shown on the course, the lesson and Your courses. `completeLesson` stays the only writer of progress and checks the member's best attempt on the server. A lesson already complete stays complete when a pass mark is added later. Scores round down to a whole percent |
+| More question types (#29) | Multiple answers (pick all that apply, four answers, every right one ticked; right only when the member picks exactly those), short answer and fill in the blank (the prompt marks the blank with `___`), graded on the server against the owner's accepted answers (up to 10), ignoring case and extra spacing. The public and member quiz routes never return correct or accepted answers or explanations. One question per form on the Quizzes page, each kind with its own fields; the 20-question cap stays. Essays stay out (manual grading) |
+| Retakes and limits (#30) | Per quiz: unlimited, a maximum number of attempts (1 to 100), or a wait before retrying (1 minute to 30 days). Computed and enforced on the server; a refused submit says that no attempts are left, or when the member may retry. Members see attempts left and when they can retry. Each attempt is kept inside the member's existing attempt row (history capped at the latest 20, the count uncapped), so no new storage collection; the best score counts for the pass mark. Quiz results shows attempts and best score. Erase removes all of it |
+| Practice mode (#31) | A quiz is Graded (default) or Practice. After submitting a Practice quiz the member sees the right answer to each question and the optional explanation the owner writes per question. A Practice quiz never blocks progress and needs no pass. Right answers and explanations are only ever returned in the submit response of a Practice quiz |
+| Erase and retake limits (security review) | Owner, 2026-11-15: a member's own erase ("Erase my course data") keeps one small record per quiz that has a maximum number of attempts or a wait, holding only the attempts used and the time of the last attempt (no answers, no scores, no progress), so erasing never resets a retake limit. Everything else is erased as before. The admin erase from the dashboard removes everything, that record included, so the owner can reset a member or honour a full deletion request. The record is one `ctx.kv` entry per member (`state:retake:<member>`), no new collection; the retake check, the quiz and attempts left read it |
+| Upgrade from 0.1.x | No migration step. A stored 0.1.x quiz reads as graded, no pass mark, unlimited retakes; a stored 0.1.x attempt reads as one attempt whose score is its first history entry and its best, and gains the new fields on its next write |
+
+New fields:
+
+- Quiz: `mode` (`graded` or `practice`, default `graded`), `passMark` (optional whole percent 1 to 100; ignored and cleared for a practice quiz), `retake` (`{type: "unlimited"}`, `{type: "max", attempts}` or `{type: "wait", minutes}`, default unlimited). Question types `multi` (`answers` x4, `correct` list of indexes), `short` and `blank` (`accepted` list); every question may carry `explain` (up to 1,000 characters).
+- Attempt: `attempts` (count), `best` (best whole percent), `history` (latest 20 of `{score, total, submittedAt}`). `score`, `total`, `answers` and `submittedAt` stay the latest submission; `answers` now holds an index, a list of indexes or text per question.
+
+Routes: `submitQuiz` (5 calls: it also reads the kept retake record) takes one answer per question (an index, a list of indexes or text), uses compare-and-set on the attempt row so two tabs cannot pass the limit, and answers `percent`, `passed`, `attempts`, `best`, `attemptsLeft`, `retryAt` (and `review` for Practice only). `memberQuiz` adds the member's standing (`mine`, 4 calls). `eraseMember` keeps the retake record described above; the admin erase deletes it. `progress` adds the pass state of each lesson quiz that has a pass mark; `myCourses` adds `quizzesPassed` (counted among the member's latest 100 attempts). Every entry point stays at 20 calls or fewer (`completeLesson` scans 13 lesson pages instead of 15 to pay for the quiz check).
+
+Out of scope for 0.2.0: essays, a question bank, timed quizzes, certificates.
 
 ## Done means
 
