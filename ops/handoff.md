@@ -4,13 +4,15 @@ Live: **0.2.0** on the EmDash registry as `@vapvarun.bsky.social/learnomy`. Publ
 
 Test on a fresh `create-emdash` blog site (registry install, kit from the release tag) and on the Cloudflare test site. On Cloudflare, redeploy after a registry install or update before judging anything (emdash-cms/emdash#4865).
 
-## In progress: 0.2.1
+## In progress: 0.2.2
 
-Branch `0.2.1`, milestone `0.2.1`, one pull request "Learnomy 0.2.1". It fixes #35 (two low findings from the 0.2.0 review):
+Branch `0.2.2` (from `v0.2.1`, which is merged to `main`), milestone `0.2.2`, one pull request "Learnomy 0.2.2". Fixes from the independent QA pass of 0.2.1:
 
-- A member's own erase keeps attempts used and the last attempt time for every quiz they took that still exists, whatever its retake policy now, so a quiz limited later still counts attempts made before the erase.
-- The same erase deletes the kept records of deleted quizzes and drops them from the member's index. A quiz delete keeps its results in Quiz results, and kept records have no per-quiz index, so the cleanup runs on the erase, not on the delete.
+- #38: before the kit's seed creates `lms_courses` and `lms_lessons`, every admin screen and the dashboard card show "Next: copy the site kit" with a link to the install guide (one catch in `handleAdmin`, matched by `typesMissing`); public routes answer empty (`findPublished`).
+- #39: Enrollments, Your courses and the `listEnrollments` tool count progress through one helper, `publishedProgress`, on the outline's published lessons; finished comes from that count, not the stored `completedAt`. Enrollments and Quiz results show 10 rows a page so Enrollments stays at 20 calls (SCOPE updated).
+- #41: the quiz settings number fields carry no browser min or max, so every out-of-range or empty value reaches `writeQuiz`, whose refusal names the allowed range; `saveQuiz` takes any number and answers `INVALID_QUIZ` with the same words; `passMark: 0` means none.
+- #40 and #42: README, introduction, known limits, admin guide and agents guide describe 0.2 quizzes; Let members join rewritten against EmDash 1.5 (email first, Subscriber not Author, what "Invitation sent" means, the dev console provider and `/_emdash/api/dev/emails` on a local site). EmDash has no official Resend plugin: the guide points at core SMTP or a Registry provider plugin.
 
-The admin erase is unchanged: it removes everything. QA case Q15 in `docs/qa/QA_CHECKLIST.md`. The kit wording file changed (`eraseHelp`), so the kit is copied again from `v0.2.1`.
+The site kit did not change. QA cases O10, O12, O14 and Q16 in `docs/qa/QA_CHECKLIST.md`.
 
-Next: coordinator walk of Q14 and Q15 (member, owner, failure side), the review, `gate.sh`, and publish only with the owner's go-ahead. The other 0.2.0 review lows were fixed in 0.2.0. Still open: the Cloudflare update check, which needs the owner to run the update in the admin.
+Next: coordinator walk of #38 on a fresh registry install and #39, #41 on the walk lab; the review; `gate.sh`; publish only with the owner's go-ahead.
