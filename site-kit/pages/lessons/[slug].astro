@@ -423,11 +423,15 @@ const check = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke
 					if (item) box.innerHTML = `<p><strong>${esc(S.quiz.rightAnswer)}</strong> ${esc(rightText(quiz.questions[i]!, item))}</p>${item.explain ? `<p class="learnomy-muted">${esc(item.explain)}</p>` : ""}`;
 				});
 				mine = { attempts: Number(out.attempts), best: out.best as number | null, passed: out.passed as boolean | null, attemptsLeft: out.attemptsLeft as number | null, retryAt: out.retryAt as string | null };
-				const verdict = out.passed === true ? S.quiz.passed : out.passed === false ? S.quiz.notPassed : "";
+				// This attempt against the pass mark; the line above the questions says whether the best passed.
+				const passedNow = out.passed === null ? null : Number(out.percent) >= Number(quiz.passMark);
+				const verdict = passedNow === null ? "" : passedNow ? S.quiz.passed : out.passed ? S.quiz.belowMark : S.quiz.notPassed;
 				score.hidden = false;
-				score.innerHTML = `<span>${esc(`${S.scored(Number(out.score), Number(out.total))} ${S.scoredPercent(Number(out.percent))}`)}</span>${verdict ? `<span class="learnomy-badge ${out.passed ? "learnomy-badge--done" : ""}" data-learnomy-quiz-verdict="${out.passed ? "passed" : "not-passed"}">${esc(verdict)}</span>` : ""}<span class="learnomy-muted" style="font-size:0.9rem;font-weight:400">${esc(S.quiz.resubmitHelp)}</span>`;
+				score.innerHTML = `<span>${esc(`${S.scored(Number(out.score), Number(out.total))} ${S.scoredPercent(Number(out.percent))}`)}</span>${verdict ? `<span class="learnomy-badge ${passedNow ? "learnomy-badge--done" : ""}" data-learnomy-quiz-verdict="${passedNow ? "passed" : "not-passed"}">${esc(verdict)}</span>` : ""}`;
 				submit.textContent = S.quiz.retry;
 				standing();
+				// Only offer another try when the retake policy allows one now.
+				if (!submit.hidden) score.insertAdjacentHTML("beforeend", `<span class="learnomy-muted" style="font-size:0.9rem;font-weight:400">${esc(S.quiz.resubmitHelp)}</span>`);
 			});
 		}
 

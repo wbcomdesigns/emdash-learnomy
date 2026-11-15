@@ -73,7 +73,7 @@ To find one member, type part of their name or their email in **Find a member by
 
 ## Erase one member's data
 
-On Enrollments or Quiz results, open **Manage** on the member's row and choose **Erase their data**. A member who took a quiz without enrolling is on Quiz results only, so erase them from there. The page asks once, with their name. Erasing here deletes every enrollment, quiz result and past attempt of that member, including the record of attempts used that their own erase keeps, so use it to reset a member's retake limits or to honour a full deletion request. It cannot be undone. Their site account stays.
+On Enrollments or Quiz results, open **Manage** on the member's row and choose **Erase their data**. A member who took a quiz without enrolling is on Quiz results only, so erase them from there. The page asks once, with their name. Erasing here deletes every enrollment, quiz result and past attempt of that member, including the record of attempts used that their own erase keeps, so use it to reset a member's retake limits or to honour a full deletion request. A member who erased their own data has no rows left: type their name or email in Find on Quiz results and their row appears with **Manage**. It cannot be undone. Their site account stays.
 
 A member with a very long history may need a second press: the page says "Press Erase again to finish".
 

@@ -574,13 +574,24 @@ async function renderResults(ctx: Ctx, view: View, toast?: Toast): Promise<Block
 		attempts: a.attempts,
 		erase: manageMenu(a.memberId, a.memberName, "results"),
 	}));
+	const matches = (listed.matches ?? []).map((m) => ({ member: m.name, erase: manageMenu(m.id, m.name, "results") }));
 	return {
 		blocks: [
 			header("Quiz results"),
 			...listChrome("results", "Quiz results", listed, view),
 			rows.length === 0
 				? view.find
-					? { type: "empty", title: "Nothing matches", description: "No quiz result belongs to a member with that name or email." }
+					? matches.length
+						? {
+								type: "table",
+								page_action_id: "results_page",
+								columns: [
+									{ key: "member", label: "Member with no quiz results (attempt counts may remain after they erased their own data)" },
+									{ key: "erase", label: "Actions", format: "element" },
+								],
+								rows: matches,
+							}
+						: { type: "empty", title: "Nothing matches", description: "No quiz result belongs to a member with that name or email." }
 					: { type: "empty", title: "No quiz results yet", description: "Each member's latest score, best score and number of attempts on each quiz appear here." }
 				: {
 						type: "table",

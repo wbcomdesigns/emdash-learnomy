@@ -232,17 +232,26 @@ describe("erase and retake limits (owner, 2026-11-15)", () => {
 		expect(refused.retryAt).toBe(first.retryAt);
 	});
 
-	it("the admin erase removes the kept record, so the member can submit again", async () => {
+	it("the admin erase removes the kept record, so the member can submit again; Find reaches a member with no results", async () => {
 		const s = await open();
-		await lessonWithQuiz(s, { ...QUIZ, retake: { type: "max", attempts: 1 } });
-		await s.post("submitQuiz", { quiz: "q1", answers: [0, 0] }, ana);
-		await s.post("eraseMember", {}, ana);
-		expect((await s.post("submitQuiz", { quiz: "q1", answers: [2, 0] }, ana)).error?.code).toBe("NO_ATTEMPTS_LEFT");
-		const out = (await s.rt.admin.act("/results", "member_erase", { value: { m: "ana", n: "Ana" }, user: root })) as R;
+		const id = (await s.rt.fixtures.user({ email: "real@example.com", name: "Real Member", role: "subscriber" } as never)).id as string;
+		const who = { ...member(id), email: "real@example.com" };
+		const { course } = await lessonWithQuiz(s, { ...QUIZ, retake: { type: "max", attempts: 1 } });
+		await s.post("enroll", { course }, who);
+		await s.post("submitQuiz", { quiz: "q1", answers: [0, 0] }, who);
+		await s.post("eraseMember", {}, who);
+		expect((await s.post("submitQuiz", { quiz: "q1", answers: [2, 0] }, who)).error?.code).toBe("NO_ATTEMPTS_LEFT");
+		// The member has no results left, so Find offers their erase anyway.
+		const found = (await s.rt.admin.submit("/results", "results_find", { find: "real@example.com" }, { user: root })) as R;
+		const row = found.blocks.find((b) => b.type === "table")!.rows[0];
+		expect(row.member).toBe("Real Member");
+		const pick = JSON.parse((row.erase.items as Array<{ value: string }>)[0]!.value);
+		const out = (await s.rt.admin.act("/results", "member_erase", { value: pick, user: root })) as R;
 		expect(out.toast?.type).toBe("success");
-		expect(await s.rt.inspect.kv.get("state:retake:ana:q1")).toBeNull();
-		expect(await s.post("submitQuiz", { quiz: "q1", answers: [2, 0] }, ana)).toMatchObject({ ok: true, attempts: 1 });
+		expect(await s.rt.inspect.kv.get(`state:retake:${id}:q1`)).toBeNull();
+		expect(await s.post("submitQuiz", { quiz: "q1", answers: [2, 0] }, who)).toMatchObject({ ok: true, attempts: 1 });
 	});
+
 });
 
 describe("upgrade from 0.1.x, no migration step", () => {

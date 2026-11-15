@@ -91,6 +91,7 @@ export const S = {
 		practice: "Practice quiz: the score never holds you back. After you submit you see the right answers.",
 		passed: "Passed",
 		notPassed: "Not passed yet",
+		belowMark: "Below the pass mark",
 		noAttemptsLeft: "You have used every attempt on this quiz.",
 		rightAnswer: "Right answer:",
 		notPassedComplete: "Pass the quiz on this lesson first, then mark it complete.",
