@@ -16,6 +16,9 @@ Yes. Add it to both outlines.
 **Can an AI agent build courses?**
 Yes. Turn on Agent access on the plugin card and give the agent a token with the Learnomy MCP tools scope. Courses and lessons use EmDash's own content tools; outlines and quizzes use Learnomy's.
 
+**Are there certificates?**
+Yes. A member who finishes a course gets a printable certificate with a link they can share or turn off. You see who finished each course under Certificates.
+
 **What are the limits?**
 200 lessons per course, 20 questions per quiz, and course pages look through the first 1,500 published lessons of a site.
 

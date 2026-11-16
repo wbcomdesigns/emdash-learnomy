@@ -33,7 +33,7 @@ From your site's root folder, run this. It gets the kit for the version you inst
 
 ```bash
 kit="$(mktemp -d)/emdash-learnomy" &&
-  git clone --depth 1 --branch v0.2.2 https://github.com/wbcomdesigns/emdash-learnomy "$kit" &&
+  git clone --depth 1 --branch v0.3.0 https://github.com/wbcomdesigns/emdash-learnomy "$kit" &&
   mkdir -p src/pages src/components src/lib src/styles src/layouts &&
   cp -R "$kit/site-kit/pages/." src/pages/ &&
   cp "$kit/site-kit/components/LearnomyMyCourses.astro" src/components/ &&
@@ -50,6 +50,7 @@ What it copies:
 | File | What it is |
 | --- | --- |
 | `src/pages/courses/index.astro`, `src/pages/courses/[slug].astro`, `src/pages/lessons/[slug].astro` | The catalog, the course page and the lesson page with its quiz |
+| `src/pages/certificates/[token].astro` | The certificate page a member shares when they finish a course |
 | `src/components/LearnomyMyCourses.astro` | Your courses, for the account page (step 3) |
 | `src/lib/learnomy.ts` | How the pages talk to the plugin |
 | `src/lib/learnomy-strings.ts` | Every phrase a visitor sees. Reword or translate it here |
@@ -105,4 +106,4 @@ Then [let members join](let-members-join.md) so they can enroll.
 
 ## After every update
 
-Run step 2 again with the new version's tag in place of `v0.2.2`. It replaces the kit's pages, styles and wording file and keeps your layout file. If you changed `learnomy-strings.ts` or a kit page, copy your changes back in after.
+Run step 2 again with the new version's tag in place of `v0.3.0`. It replaces the kit's pages, styles and wording file and keeps your layout file. If you changed `learnomy-strings.ts` or a kit page, copy your changes back in after.

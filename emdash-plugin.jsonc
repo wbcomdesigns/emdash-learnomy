@@ -40,7 +40,7 @@
 	"allowedHosts": [],
 	"storage": {
 		"outlines": { "indexes": ["updatedAt"] },
-		"enrollments": { "indexes": ["startedAt", ["courseKey", "startedAt"], ["memberId", "updatedAt"]] },
+		"enrollments": { "indexes": ["startedAt", ["courseKey", "startedAt"], ["memberId", "updatedAt"], "certToken", ["courseKey", "completedAt"], ["memberId", "completedAt"]] },
 		"quizzes": { "indexes": ["updatedAt", "lessonKey"] },
 		"attempts": { "indexes": ["submittedAt", ["quizId", "submittedAt"], ["memberId", "submittedAt"]] }
 	},
@@ -49,7 +49,8 @@
 			{ "path": "/outline", "label": "Course outline", "icon": "list" },
 			{ "path": "/quizzes", "label": "Quizzes", "icon": "check" },
 			{ "path": "/enrollments", "label": "Enrollments", "icon": "users" },
-			{ "path": "/results", "label": "Quiz results", "icon": "chart" }
+			{ "path": "/results", "label": "Quiz results", "icon": "chart" },
+			{ "path": "/certificates", "label": "Certificates", "icon": "award" }
 		],
 		"widgets": [{ "id": "summary", "title": "Learnomy", "size": "half" }],
 		"editorPanels": [{ "id": "courses", "title": "Learnomy", "route": "panel", "collections": ["lms_lessons"] }]

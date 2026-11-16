@@ -1,0 +1,73 @@
+---
+/*
+ * Learnomy certificate page: the shareable link a member gets when they finish a course. Anyone with
+ * the link sees the member's name, the course, the completion date and the site that issued it. The
+ * plugin answers only for a link that is on; an unknown or switched-off link renders "not found"
+ * with no member data. Never cached, so a link the member or owner turns off stops working at once.
+ * Search engines are asked not to index it. Printing gives a clean black-on-white page (learnomy.css).
+ */
+import { getSiteSettings } from "emdash";
+import Layout from "../../layouts/LearnomyLayout.astro";
+import { certificateHref, PLUGIN } from "../../lib/learnomy";
+import { S } from "../../lib/learnomy-strings";
+import { callPluginRoute } from "../../lib/wbcom-kit";
+import "../../styles/learnomy.css";
+
+const token = String(Astro.params.token ?? "");
+// The plugin checks the token; a malformed one costs it nothing.
+const result = /^[0-9a-f]{32}$/.test(token) ? await callPluginRoute(Astro.locals, PLUGIN, `certificate?token=${token}`) : null;
+const cert = result?.ok ? (result.certificate as { member: string; course: string; completedAt: string; site: string }) : null;
+if (Astro.cache?.enabled) Astro.cache.set(false);
+// Sent by the page itself, so neither depends on the site's layout or cache settings (a CDN rule, a
+// layout that ignores robots): a link turned off stops at once and is never listed.
+Astro.response.headers.set("Cache-Control", "private, no-store");
+Astro.response.headers.set("X-Robots-Tag", "noindex, nofollow");
+if (!cert) Astro.response.status = 404;
+const site = cert ? cert.site || (await getSiteSettings().catch(() => null))?.title || Astro.url.host : "";
+const link = cert ? new URL(certificateHref(token), Astro.url).href : "";
+const date = cert ? S.cert.completedOn(S.certDate(cert.completedAt)) : "";
+---
+
+<Layout title={cert ? S.certTitle(cert.course) : S.cert.notFound} robots="noindex, nofollow">
+	<div class="learnomy learnomy-certpage" data-learnomy-certpage>
+		{
+			cert ? (
+				<>
+					<article class="learnomy-cert" aria-labelledby="learnomy-cert-heading" data-learnomy-cert>
+						<p class="learnomy-cert__site" data-learnomy-cert-site>{site}</p>
+						<h1 id="learnomy-cert-heading" class="learnomy-cert__heading">{S.cert.heading}</h1>
+						<p class="learnomy-cert__lead">{S.cert.certifies}</p>
+						<p class="learnomy-cert__name" data-learnomy-cert-member>{cert.member || S.cert.noName}</p>
+						<p class="learnomy-cert__lead">{S.cert.completedCourse}</p>
+						<p class="learnomy-cert__course" data-learnomy-cert-course>{cert.course}</p>
+						<p class="learnomy-cert__date">
+							<time datetime={cert.completedAt} data-learnomy-cert-date>{date}</time>
+						</p>
+						<footer class="learnomy-cert__foot">
+							<p>
+								{S.cert.issuedBy} <strong>{site}</strong>
+							</p>
+							<p class="learnomy-cert__check">
+								{S.cert.check} <a href={link}>{link}</a>
+							</p>
+						</footer>
+					</article>
+					<div class="learnomy-actions learnomy-cert__actions" data-learnomy-cert-actions>
+						<button class="learnomy-btn" type="button" data-learnomy-cert-print>{S.cert.print}</button>
+						<p class="learnomy-muted">{S.cert.printHelp}</p>
+					</div>
+				</>
+			) : (
+				<div class="learnomy-notice" role="alert" data-learnomy-cert-missing>
+					<h1>{S.cert.notFound}</h1>
+					<p>{S.cert.notFoundHelp}</p>
+					<a class="learnomy-btn learnomy-btn--quiet" href="/courses/">{S.cert.browse}</a>
+				</div>
+			)
+		}
+	</div>
+</Layout>
+
+<script>
+	document.querySelectorAll<HTMLButtonElement>("[data-learnomy-cert-print]").forEach((button) => button.addEventListener("click", () => window.print()));
+</script>

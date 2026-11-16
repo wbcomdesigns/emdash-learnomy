@@ -1,10 +1,11 @@
 import type { SandboxedMcpTool } from "emdash/plugin";
 
 import { BAD_INPUT, type Ctx, parse } from "./lib/common";
+import { listCertificates, setCertificate } from "./lib/certificates";
 import { getOutline, saveOutline } from "./lib/outlines";
 import { listEnrollments, listResults } from "./lib/people";
 import { deleteQuiz, getQuiz, listQuizzes, writeQuiz } from "./lib/quizzes";
-import { courseInput, deleteQuizInput, listInput, listQuizzesInput, quizInput, saveQuizInput, setOutlineInput } from "./schemas";
+import { certificateOffInput, courseInput, deleteQuizInput, listCertificatesInput, listInput, listQuizzesInput, quizInput, saveQuizInput, setOutlineInput } from "./schemas";
 
 type RouteCtx = { input: unknown };
 
@@ -59,6 +60,16 @@ export const toolRoutes = {
 		if (!input) return BAD_INPUT;
 		return listResults(ctx, input);
 	},
+	"tools/listCertificates": async (routeCtx: RouteCtx, ctx: Ctx) => {
+		const input = parse(listCertificatesInput, routeCtx.input);
+		if (!input) return BAD_INPUT;
+		return listCertificates(ctx, input.course, input.cursor);
+	},
+	"tools/turnOffCertificate": async (routeCtx: RouteCtx, ctx: Ctx) => {
+		const input = parse(certificateOffInput, routeCtx.input);
+		if (!input) return BAD_INPUT;
+		return setCertificate(input.member, input.course, false, ctx);
+	},
 };
 
 // SandboxedMcpTool types its schemas as full zod's ZodType; zod/mini schemas share the same core and
@@ -79,5 +90,16 @@ export const mcpTools: Record<string, SandboxedMcpTool> = {
 	},
 	deleteQuiz: { description: "Delete a quiz. Pass its rev from listQuizzes or getQuiz.", route: "tools/deleteQuiz", input: schema(deleteQuizInput), destructive: true },
 	listEnrollments: { description: "List enrollments newest first with member names and progress (published lessons only, as the member sees it), 10 a page; find filters by member name or email.", route: "tools/listEnrollments", input: schema(listInput) },
+	listCertificates: {
+		description: "List a course's certificates newest first, 8 a page: member id and name, completion date, and whether the shareable link is on (with its token). Courses finished before 0.3.0 get their certificate here.",
+		route: "tools/listCertificates",
+		input: schema(listCertificatesInput),
+	},
+	turnOffCertificate: {
+		description: "Switch off a member's certificate link for a course (course entry id and member id from listCertificates). The link stops working at once; the member can turn it on again with a new link.",
+		route: "tools/turnOffCertificate",
+		input: schema(certificateOffInput),
+		destructive: true,
+	},
 	listResults: { description: "List quiz results newest first with member names, quiz titles, latest score, best percent and number of attempts, 10 a page; find filters by member name or email.", route: "tools/listResults", input: schema(listInput) },
 };

@@ -1,4 +1,4 @@
-# Learnomy QA checklist (0.1.0, with 0.2.0 cases)
+# Learnomy QA checklist (0.1.0, with 0.2.0 and 0.3.0 cases)
 
 Run on a standard EmDash 1.5 blog site (`npm create emdash@latest -- --template blog --platform node`), plugin installed from the registry, kit copied from the release tag by following `docs/install/` word for word. Repeat the starred cases on the Cloudflare testbed. Every screen at 1440, 768 and 390, light and dark, keyboard only once. Read every screenshot.
 
@@ -71,6 +71,17 @@ Run on a standard EmDash 1.5 blog site (`npm create emdash@latest -- --template 
 - [ ] Q11 Upgrade: on a site with 0.1.x quizzes and results, update to 0.2.0 with no other step: the old quizzes show and score as graded with unlimited retakes, Quiz results shows each old result as 1 attempt with its best score, and the next submit keeps the old score as the first history entry.*
 - [ ] Q12 Agents: `saveQuiz` with every question type, mode, pass mark and retake; `getQuiz` returns them; leaving them out keeps them; `passMark: null` removes it.
 - [ ] Q13 Quiz with each type at 1440, 768 and 390, light and dark, keyboard only: every question is a fieldset with a legend, multiple answers are checkboxes with the "Choose every answer that applies" hint, text answers have a label, the score and pass state are announced.
+
+## Certificates 0.3.0 (#37)
+
+- [ ] C1 Member finishes a course (with a graded quiz with a pass mark passed): Your courses shows Certificate with View, Copy link and Turn link off. View opens `/certificates/<32 hex>` with their name, the course, "Completed on <date>" and "Issued by <site title>".*
+- [ ] C2 Copy link puts the full address on the clipboard and says so. A guest opening it sees the same certificate; the page HTML has no email and no ids; `meta robots` is `noindex, nofollow`.*
+- [ ] C3 Turn link off: the old link shows "Certificate not found" (404, no name or course in the HTML), the same page as a made-up 32-character link and as `/certificates/x`. Turn on with a new link: the new link works, the old one stays not found.*
+- [ ] C4 Print preview (or print to PDF): only the certificate, black on white, one landscape page; no header, footer or button. On screen: light and dark, 1440, 768, 390, no sideways scroll; the buttons work by keyboard and focus stays on the switch after it changes.
+- [ ] C5 Owner: Plugins, Certificates lists courses; a course shows each member who finished (name, date, link on or off), 8 per page. Turn link off asks once; the member's link then shows not found. An off row has no action.
+- [ ] C6 A course finished before 0.3.0 (completedAt set, no certificate) gets one on the member's first view of Your courses, and on the owner's first view of its course on Certificates; progress is unchanged.
+- [ ] C7 Member's own erase and the admin Erase their data: the certificate link shows not found afterwards.
+- [ ] C8 Agents: `listCertificates` lists names, dates and link state; `turnOffCertificate` switches a link off and is marked destructive.
 
 ## Budget and build
 

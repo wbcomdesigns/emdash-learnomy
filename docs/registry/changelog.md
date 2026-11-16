@@ -1,3 +1,13 @@
+## 0.3.0
+
+Course certificates. No new permissions. Copy the site kit again after updating.
+
+- New      - A printable certificate for every finished course, with a link to share.
+- New      - Members view, copy, turn off or renew their link in Your courses.
+- New      - Certificates admin page per course, with Turn link off.
+- New      - MCP tools to list certificates and turn a link off.
+- Improve  - Courses finished earlier get their certificate on first view.
+
 ## 0.2.2
 
 Fixes. No new permissions. The site kit did not change.
@@ -5,13 +15,6 @@ Fixes. No new permissions. The site kit did not change.
 - Fix      - A new install says to copy the site kit, not "Plugin error".
 - Fix      - Enrollments counts published lessons only, as members see it.
 - Fix      - Out-of-range quiz settings are refused with a clear message.
-
-## 0.2.1
-
-Fixes. No new permissions. Copy the site kit again after updating.
-
-- Fix      - A member's own erase keeps attempts used on every quiz, so a limit set later still counts them.
-- Fix      - A member's own erase removes the attempt counts of deleted quizzes.
 
 ## 0.2.0
 
@@ -22,14 +25,6 @@ Richer quizzes. No new permissions. Copy the site kit again after updating.
 - New      - Retakes: unlimited, a maximum number of attempts, or a wait between attempts.
 - New      - Practice mode with right answers and explanations after submitting.
 - Improve  - Best score and attempts in Quiz results; attempts left for members.
-
-## 0.1.1
-
-Fixes. No new permissions. Copy the site kit again after updating.
-
-- Improve  - Find counts only the matches and pages through all of them.
-- Fix      - A course with no access value shows as Members everywhere.
-- Fix      - The catalog's Previous link goes to the previous page.
 
 ## 0.1.0
 
@@ -43,3 +38,5 @@ The first release. Needs EmDash 1.5.0 or later.
 - New      - MCP tools so an agent can build a whole course.
 
 New permissions: Read your content, Read user accounts.
+
+Older releases: see CHANGELOG.md in the repository.

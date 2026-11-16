@@ -5,6 +5,7 @@ import { getOutline, saveOutline } from "./lib/outlines";
 import { FIND_MATCHES, listEnrollments, listResults, LIST_PAGE } from "./lib/people";
 import { BLANK, deleteQuiz, getQuiz, listQuizzes, writeQuiz } from "./lib/quizzes";
 import { eraseRows } from "./learn";
+import { CERT_PAGE, listCertificates, setCertificate } from "./lib/certificates";
 import { asNumber, asRecord, asString } from "./util";
 
 type Toast = { message: string; type: "success" | "error" | "info" };
@@ -658,6 +659,77 @@ async function eraseOne(ctx: Ctx, value: Record<string, unknown>): Promise<Block
 	};
 }
 
+/* ---------------- Certificates ---------------- */
+
+/** Pick a course to see its certificates. One call. */
+async function renderCertCourses(ctx: Ctx, view: View, toast?: Toast): Promise<BlockResponse> {
+	const page = await ctx.content!.list("lms_courses", { orderBy: { title: "asc" }, limit: COURSE_PAGE, ...(view.at ? { cursor: view.at } : {}) });
+	const rows = page.items.map((item) => {
+		const title = titleOf(item, "Untitled course");
+		return { course: title, status: statusBadge(item.status), open: button("Certificates", "cert_open", { c: item.id, t: title }) };
+	});
+	return {
+		blocks: [
+			header("Certificates"),
+			note("A member who finishes a course gets a certificate with a link they can share. Pick a course to see who has one and whether each link is on."),
+			rows.length === 0
+				? { type: "empty", title: "No courses yet", description: "Write a course under Courses. Members who finish it get a certificate." }
+				: {
+						type: "table",
+						page_action_id: "cert_courses",
+						columns: [
+							{ key: "course", label: "Course" },
+							{ key: "status", label: "Status", format: "badge" },
+							{ key: "open", label: "Actions", format: "element" },
+						],
+						rows,
+					},
+			...pager("cert_courses", view, page.hasMore ? page.cursor : undefined),
+		],
+		...(toast ? { toast } : {}),
+	};
+}
+
+/**
+ * One course's certificates, newest first: member, date, link on or off, and Turn link off. The course
+ * title rides in the button value so the page stays at 18 calls (listCertificates).
+ */
+async function renderCertificates(ctx: Ctx, course: string, title: string, view: View, toast?: Toast): Promise<BlockResponse> {
+	const listed = await listCertificates(ctx, course, view.at);
+	const name = title || listed.items[0]?.courseTitle || "Untitled course";
+	const rows = listed.items.map((c) => ({
+		member: c.memberName,
+		// Date and link state ride in one cell: four columns clip at 390.
+		finished: `${dayOf(c.completedAt)}, ${c.on ? "link on" : c.issued ? "link off" : "link not made yet"}`,
+		// An off link has no action here: only the member turns it on again, with a new link.
+		...(c.on
+			? { link: button("Turn link off", "cert_off", { c: course, t: name, m: c.member, n: c.memberName, at: view.at, back: view.back }, "danger", confirmBox(`Turn off ${c.memberName}'s certificate link?`, "The link stops working for everyone who has it. The member can turn it on again with a new link.", "Turn link off")) }
+			: {}),
+	}));
+	return {
+		blocks: [
+			header(`Certificates: ${name}`),
+			{ type: "stats", items: [{ label: "Certificates", value: listed.total }] },
+			...(listed.total > CERT_PAGE ? [note(`${listed.total} in all, ${CERT_PAGE} per page, newest first.`)] : []),
+			rows.length === 0
+				? { type: "empty", title: "No certificates yet", description: "Members who finish this course appear here." }
+				: {
+						type: "table",
+						page_action_id: "cert_page",
+						columns: [
+							{ key: "member", label: "Member" },
+							{ key: "finished", label: "Finished and link" },
+							{ key: "link", label: "Actions", format: "element" },
+						],
+						rows,
+					},
+			...pager("cert_page", view, listed.cursor, { c: course, t: name }),
+			actionsRow(button("All courses", "cert_courses", {})),
+		],
+		...(toast ? { toast } : {}),
+	};
+}
+
 /* ---------------- Dashboard card ---------------- */
 
 async function renderWidget(ctx: Ctx): Promise<BlockResponse> {
@@ -743,6 +815,7 @@ async function route(input: unknown, ctx: Ctx, user?: User): Promise<BlockRespon
 		}
 		if (page === "/enrollments") return renderEnrollments(ctx, {});
 		if (page === "/results") return renderResults(ctx, {});
+		if (page === "/certificates") return renderCertCourses(ctx, {});
 		if (user) {
 			const course = await ctx.kv.get<string>(openKey(user.id));
 			if (course) {
@@ -821,6 +894,16 @@ async function route(input: unknown, ctx: Ctx, user?: User): Promise<BlockRespon
 		}
 		case "member_erase":
 			return eraseOne(ctx, value);
+		case "cert_courses":
+			return renderCertCourses(ctx, viewOf(value));
+		case "cert_open":
+		case "cert_page":
+			return renderCertificates(ctx, asString(value.c), asString(value.t), viewOf(value));
+		case "cert_off": {
+			const name = asString(value.n) || "the member";
+			const result = await setCertificate(asString(value.m), asString(value.c), false, ctx);
+			return renderCertificates(ctx, asString(value.c), asString(value.t), viewOf(value), result.ok ? ok(`${name}'s certificate link is off.`) : failToast(result));
+		}
 	}
 	return renderCourses(ctx, {});
 }

@@ -2,7 +2,8 @@
 
 The plugin is the engine. This folder is what a site copies so visitors get the course pages:
 `/courses/` (catalog), `/courses/<slug>` (course), `/lessons/<slug>?course=<course slug>` (lesson
-and quiz), and the "Your courses" component for the site's account page.
+and quiz), `/certificates/<link>` (a finished course's certificate), and the "Your courses" component for
+the site's account page.
 
 ## Copy the kit into your site
 
@@ -11,7 +12,7 @@ version installed on the site:
 
 ```bash
 kit="$(mktemp -d)/emdash-learnomy" &&
-  git clone --depth 1 --branch v0.2.2 https://github.com/wbcomdesigns/emdash-learnomy "$kit" &&
+  git clone --depth 1 --branch v0.3.0 https://github.com/wbcomdesigns/emdash-learnomy "$kit" &&
   mkdir -p src/pages src/components src/lib src/styles src/layouts &&
   cp -R "$kit/site-kit/pages/." src/pages/ &&
   cp "$kit/site-kit/components/LearnomyMyCourses.astro" src/components/ &&

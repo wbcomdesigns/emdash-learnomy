@@ -97,6 +97,22 @@ const MEASURED: Record<string, number> = {
 	"hook plugin:activate (marker set)": 2,
 	"hook cron daily (marker current)": 1,
 	"hook cron daily (older marker)": 2,
+	// 0.3.0 certificates. The public page: the token lookup, then the member and the course: 3. A
+	// malformed token costs nothing. setCertificate on a link not issued yet: two guarded updates: 2 (3 when
+	// neither applies and it reads the row). myCertificates: the query, then at most 18 lazy issues: 19. The admin
+	// list: count and page, 8 names, 8 lazy issues: 18; turning a link off adds the guarded update: 19.
+	"route certificate": 3,
+	"route certificate (unknown token)": 1,
+	"route certificate (malformed token)": 0,
+	"route myCertificates (60 finished before 0.3.0)": 19,
+	"route setCertificate (off)": 1,
+	"route setCertificate (on again)": 1,
+	"route setCertificate (not issued yet)": 3,
+	"admin page_load /certificates": 1,
+	"admin cert_open (20 finished before 0.3.0, 8 shown)": 18,
+	"admin cert_off": 19,
+	"tool listCertificates": 18,
+	"tool turnOffCertificate": 1,
 };
 
 const seen = new Map<string, number>();
@@ -288,6 +304,33 @@ describe("bridge calls per entry point, worst case", () => {
 		await measure("tool deleteQuiz", () => tool("deleteQuiz", { quiz: "q1", rev: saved.quiz.rev }));
 		await measure("tool listEnrollments", () => tool("listEnrollments", {}));
 		await measure("tool listResults", () => tool("listResults", {}));
+	});
+
+	it("certificates", async () => {
+		const admin = s.rt.admin;
+		const at = (n: number) => new Date(Date.UTC(2026, 9, 1) + n * 60_000).toISOString();
+		const done = (who: string, key: string, n: number, extra: Record<string, unknown> = {}) =>
+			s.rt.fixtures.plugin.storage("enrollments", `${who}:${key}`, { memberId: who, courseKey: key, courseTitle: "Cert course", startedAt: at(n), updatedAt: at(n), completedAt: at(n), done: [], ...extra });
+		// 20 members finished one course before 0.3.0 (no certificate yet); one member finished 60.
+		for (let i = 0; i < 20; i += 1) await done(members[100 + i]!, course, i);
+		for (let i = 0; i < 60; i += 1) await done("cara", `cc${i}`, i);
+		const listed = await measure("admin cert_open (20 finished before 0.3.0, 8 shown)", () => admin.act("/certificates", "cert_open", { value: { c: course, t: "Course A" }, user: root }));
+		expect(listed.blocks.find((b: Out) => b.type === "table").rows).toHaveLength(8);
+		await measure("admin page_load /certificates", () => admin.loadPage("/certificates", { user: root }));
+		const token = (await s.rt.inspect.storage.get<{ certToken: string }>("enrollments", `${members[119]}:${course}`))!.certToken;
+		expect((await measure("route certificate", () => s.get("certificate", { token }))).ok).toBe(true);
+		await measure("route certificate (unknown token)", () => s.get("certificate", { token: "f".repeat(32) }));
+		await measure("route certificate (malformed token)", () => s.get("certificate", { token: "x" }));
+		const offRow = listed.blocks.find((b: Out) => b.type === "table").rows[0].link;
+		expect((await measure("admin cert_off", () => admin.act("/certificates", offRow.action_id, { value: offRow.value, user: root }))).toast.type).toBe("success");
+		await measure("tool listCertificates", () => tool("listCertificates", { course }));
+		await measure("tool turnOffCertificate", () => tool("turnOffCertificate", { course, member: members[118] }));
+		const cara = member("cara");
+		expect((await measure("route myCertificates (60 finished before 0.3.0)", () => s.get("myCertificates", {}, cara))).items).toHaveLength(50);
+		await measure("route setCertificate (off)", () => s.post("setCertificate", { course: "cc59", on: false }, cara));
+		expect((await measure("route setCertificate (on again)", () => s.post("setCertificate", { course: "cc59", on: true }, cara))).on).toBe(true);
+		// cc0 to cc9 are past the 50 a view reads: no link yet. Turn on issues one.
+		expect((await measure("route setCertificate (not issued yet)", () => s.post("setCertificate", { course: "cc0", on: true }, cara))).on).toBe(true);
 	});
 
 	it("every entry point measured, none over the cap", () => {

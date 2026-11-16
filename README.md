@@ -35,6 +35,7 @@ A teacher sharing what they know, a company training its team, or a publisher ad
 - **Lessons that are easy to read**, with the course outline beside the text on a big screen and folded away on a phone.
 - **Quizzes scored on your site.** The right answers never reach the browser before a member submits.
 - **Your courses**, a list of everything they are taking with Continue, on your site's account page.
+- **A certificate for every finished course**, printable or saved as PDF, with a link they can share or turn off.
 
 **For AI agents**
 
@@ -64,7 +65,7 @@ The course pages take their fonts, colours and spacing from your EmDash theme. T
 
 - **Members join by invite for now.** You invite them from Users in your dashboard. Self-signup by email domain arrives as soon as EmDash ships its signup fix. See [Let members join](docs/website/getting-started/let-members-join.md).
 - **Members keeps out visitors who are not signed in.** It does not hide one member's courses from another member. See [What Members means](docs/website/getting-started/what-members-means.md).
-- **Free, with no paid version.** No prices, checkout or certificates yet. Learnomy grows as EmDash grows.
+- **Free, with no paid version.** No prices or checkout. Learnomy grows as EmDash grows.
 
 ## Docs
 

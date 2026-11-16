@@ -40,3 +40,24 @@ describe("catalog pages", () => {
 		expect(catalog).toContain("catalogPages(");
 	});
 });
+
+import certPage from "../site-kit/pages/certificates/[token].astro?raw";
+import { certificateHref } from "../site-kit/lib/learnomy";
+
+describe("certificate page (0.3.0)", () => {
+	it("is never cached, asks search engines not to index it, and links by token", () => {
+		expect(certificateHref("ab".repeat(16))).toBe(`/certificates/${"ab".repeat(16)}`);
+		expect(certPage).toContain("Astro.cache.set(false)");
+		expect(certPage).toContain('robots="noindex, nofollow"');
+		expect(certPage).toContain("Astro.response.status = 404");
+		// Member data comes only from the plugin's answer for a link that is on.
+		expect(certPage).toMatch(/result\?\.ok \?/);
+	});
+});
+
+describe("certificate page headers (0.3.0 review L2)", () => {
+	it("sends no-store and noindex itself, whatever the layout or cache does", () => {
+		expect(certPage).toContain('Astro.response.headers.set("Cache-Control", "private, no-store")');
+		expect(certPage).toContain('Astro.response.headers.set("X-Robots-Tag", "noindex, nofollow")');
+	});
+});

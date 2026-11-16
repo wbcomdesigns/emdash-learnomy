@@ -2,6 +2,19 @@
 
 Versions match `package.json`, the git tag and the registry release. Newest first.
 
+## [0.3.0]
+
+Course certificates with a shareable link. No new permissions and no new storage collection. Copy the site kit again after updating (new `pages/certificates/[token].astro`; Your courses, `learnomy.ts`, `learnomy-strings.ts`, `learnomy.css`).
+
+- New      - A certificate for every finished course: member name, course, completion date and the site's name, printable and savable as PDF from the browser.
+- New      - Each certificate has a long random link anyone can open to check it; an unknown or switched-off link answers not found the same way, and the page is never cached or indexed.
+- New      - Your courses: view a certificate, copy its link, turn the link off, or turn it on again with a new link.
+- New      - Certificates admin page: per course, who finished, the date, whether the link is on, and Turn link off.
+- New      - MCP tools listCertificates and turnOffCertificate (destructive).
+- Improve  - Courses finished before 0.3.0 get their certificate on the first view of Your courses or the Certificates page, with no migration step.
+- Improve  - A member's own erase and the admin erase remove the member's certificates.
+- Dev      - The certificate lives on the enrollment row (certToken) with a storage index for the lookup; finishing a course issues it in the same write.
+
 ## [0.2.2]
 
 Fixes from the 0.2.1 QA pass. No new permissions and no new storage. The site kit did not change.

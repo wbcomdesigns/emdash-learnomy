@@ -26,7 +26,7 @@ A basic, free LMS for any EmDash site: courses and lessons written in EmDash's o
 | Collection names | Prefixed: `lms_courses`, `lms_lessons`, taxonomy `lms_course_category`, so a site's own `courses` collection is never merged into ours (D) |
 | Quizzes | One quiz per lesson, at most 20 questions (0.1.0: multiple choice with four answers and true/false; 0.2.0 adds multiple answers, short answer and fill in the blank, pass marks, retakes and practice, see the 0.2.0 rows below). Written on a Quizzes admin page, one question per form, where each quiz picks its lesson by title; one quiz per lesson is enforced there. The lesson editor panel shows the lesson's quiz and links to it (owner, 2026-11-15: a sandboxed panel cannot save a field on the entry without `admin.editor-draft:patch`; P pattern: WB Polls) |
 | Scoring | On the server. The quiz route never sends the correct answers. One attempt per member and quiz, replaced on resubmit |
-| Certificates | Later (0.3.0), as a printable kit page. A PDF library does not fit the 128 KB bundle cap |
+| Certificates | 0.3.0, as a printable kit page with a shareable link (see "0.3.0"). A PDF library does not fit the 128 KB bundle cap |
 | Settings page | None in 0.1.0 (no real switch exists yet). EmDash's generated settings form is not used |
 | Background task | One small daily task with a version marker in `ctx.kv`, so later releases can schedule reminders and notices: no hook runs on a plugin update (P: Listora 0.7.1) |
 | Reviews, discussion, polls, search | Reviews through WB Reviews on `lms_courses`; discussion through EmDash core comments; polls through WB Polls; search is EmDash core (course titles and excerpts; lesson bodies are not searchable) |
@@ -132,6 +132,26 @@ New fields:
 Routes: `submitQuiz` (5 calls, 18 at most on a limited quiz: it reads and raises the kept retake record) takes one answer per question (an index, a list of indexes or text), uses compare-and-set on the attempt row so two tabs cannot pass the limit, and answers `percent`, `passed`, `attempts`, `best`, `attemptsLeft`, `retryAt` (and `review` for Practice only). `memberQuiz` adds the member's standing (`mine`, 4 calls). `eraseMember` keeps the retake record described above; the admin erase deletes it. `progress` adds the pass state of each lesson quiz that has a pass mark; `myCourses` adds `quizzesPassed` (counted among the member's latest 100 attempts). Every entry point stays at 20 calls or fewer (`completeLesson` scans 13 lesson pages instead of 15 to pay for the quiz check).
 
 Out of scope for 0.2.0: essays, a question bank, timed quizzes, certificates.
+
+## 0.3.0: certificates with a shareable link (owner, 2026-11-15, issue #37)
+
+No new storage collection, no new permission, no new option.
+
+| Question | Decision |
+| --- | --- |
+| Who gets one | A member whose enrollment has `completedAt` set (every published lesson done; a graded quiz with a pass mark gates its lesson, but a lesson completed before the pass mark was added stays complete, so a certificate can be issued without that quiz passed). `completeLesson` issues it in the write that sets `completedAt` |
+| Deleted course | The certificate stays valid and shows the course title stored on the enrollment: the member earned it (coordinator, 2026-11-16, review note) |
+| What it shows | The member's name (never the email or any id), the course title, the completion date and the issuing site's name (EmDash settings, `ctx.site.name`). Styled for print with a print stylesheet so the browser prints it or saves it as PDF; no PDF library |
+| The link | `/certificates/<token>`: 32 hex characters, 128 random bits. The public `certificate` route answers only those four fields for a token that is on; an unknown, malformed or switched-off token gets the same `CERTIFICATE_NOT_FOUND`. A member whose account is gone has no certificate. The kit page is never cached (`Astro.cache.set(false)`, the Open lesson rule, plus its own `Cache-Control: private, no-store` header), answers 404 with no member data for a token that does not resolve, and carries `noindex, nofollow` (meta and its own `X-Robots-Tag` header, so neither depends on the site's layout) |
+| Member | Your courses shows each certificate: View, Copy link, Turn link off; a switched-off link offers Turn on with a new link (the old token never works again); a certificate whose link is not made yet offers Get the link, never "off". Turning on only applies to a switched-off or not-yet-made link, so a second tab cannot replace a link already shared. `myCertificates` reads the member's finished rows in the order `myCourses` uses (updatedAt), so every finished course Your courses shows has its certificate |
+| Owner | A Certificates admin page: pick a course, see who finished it (names, date, link on, off or not made yet), 8 rows a page (each row costs a name lookup and at most one lazy issue), Turn link off with a confirm. The owner can turn a link off; only the member can turn it back on, with a new link (coordinator, 2026-11-16) |
+| Agents | `listCertificates` (course, cursor) and `turnOffCertificate` (course, member; destructive) on admin routes |
+| Erase | The member's own erase and the admin erase delete the enrollment rows, so the certificates and their tokens go with them |
+| Upgrade from 0.2.x | No migration step. A finished enrollment with no token is issued one on the first view of Your courses (`myCertificates`, up to 18 per view) or of its course on the Certificates page, with a guarded `updateIf` (`certToken` still null) that never rewrites progress and never recreates an erased row |
+
+Storage: enrollment field `certToken` (absent or null not issued yet, `""` switched off, 32 hex characters on). New `enrollments` indexes: `certToken`, `["courseKey","completedAt"]`, `["memberId","completedAt"]`.
+
+Routes and calls: `certificate` (public, 3), `myCertificates` (member, 19 at most), `setCertificate` (member, 3 at most), admin Certificates list 18 and Turn link off 19, `listCertificates` 18, `turnOffCertificate` 1.
 
 ## Done means
 

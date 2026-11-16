@@ -45,4 +45,10 @@ Only on a practice quiz, after they submit, with your explanation for each quest
 No. Every question is graded on your site; essays would need someone to mark them.
 
 **Are there certificates?**
-Not yet.
+Yes. A member who finishes a course gets a certificate with their name, the course, the date and your site's name, and a link they can share. They can print it or save it as a PDF from the browser. See [Certificates](../manage/admin-guide.md#certificates).
+
+**Can someone guess a certificate link?**
+No. Each link carries a long random code (128 bits). A link that is turned off, or made up, says "Certificate not found" in the same way.
+
+**Can a member take their certificate link back?**
+Yes. **Turn link off** in Your courses stops it at once. **Turn on with a new link** gives a fresh link; the old one never works again. You can also turn a link off on the Certificates page.
