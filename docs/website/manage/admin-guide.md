@@ -38,7 +38,7 @@ A course holds up to 200 lessons. A lesson can be in more than one course.
 2. Press **Choose lesson** and pick the lesson the quiz belongs to. A lesson that already has a quiz says which. **Change lesson** moves the quiz; **Take it off the lesson** hides it from visitors.
 3. Set the quiz under **Mode**, **Pass mark** and **Retakes**, then press **Save settings**:
    - **Graded** (the default) or **Practice**. A practice quiz never holds anyone back. After submitting, members see the right answer to each question and your explanation.
-   - **Pass mark**: a percent from 1 to 100, or 0 for none. With a pass mark, a member must reach it on this graded quiz before they can mark its lesson complete, so a course only finishes once all its quizzes are passed. Their best score counts. Scores round down, so 2 of 3 is 66%.
+   - **Pass mark**: a whole percent from 1 to 100, or 0 for none. A number outside that, or an empty box, is refused with a message saying what is allowed, and nothing is saved. **Attempts allowed** is 1 to 100 and the wait is 1 to 43200 minutes (30 days), refused the same way. With a pass mark, a member must reach it on this graded quiz before they can mark its lesson complete, so a course only finishes once all its quizzes are passed. Their best score counts. Scores round down, so 2 of 3 is 66%.
    - **Retakes**: **Unlimited**, **A maximum number of attempts** (then the number), or **A wait before each retry** (then the minutes, up to 30 days).
 4. Under **Add a question**, pick the kind of question. Each kind shows its own fields:
    - **Multiple choice (one answer)**: the question and four answers, then the correct answer.
@@ -67,7 +67,7 @@ When you edit a lesson, the **Learnomy** panel beside the editor shows which cou
 
 ## Enrollments and Quiz results
 
-**Enrollments** lists who enrolled in which course and how far they are: lessons done of the lessons in the course outline, or **Finished**. **Quiz results** lists each member's latest score on each quiz, their best score and how many attempts they made. Both show the newest first, 15 rows a page, with **Previous page** and **Next page**.
+**Enrollments** lists who enrolled in which course and how far they are: published lessons done of the published lessons in the course outline, the same count the member sees, or **Finished**. A draft lesson in the outline is not counted. **Quiz results** lists each member's latest score on each quiz, their best score and how many attempts they made. Both show the newest first, 10 rows a page, with **Previous page** and **Next page**.
 
 ![The Enrollments list](../images/admin-enrollments.webp)
 

@@ -1,13 +1,17 @@
-import type { Attempt, Enrollment } from "../schemas";
+import { outline as outlineSchema, type Attempt, type Enrollment } from "../schemas";
+import { publishedProgress } from "../learn";
 import { readAttempt } from "./attempts";
-import { countProgress, type Ctx } from "./common";
+import { type Ctx, parse } from "./common";
 
 /**
  * Rows per page of the Enrollments and Quiz results lists. users:read has no batch lookup (get,
- * getByEmail and list only), so each page looks up at most this many names one by one and stays under
- * 20 calls (count, query, one batched read of titles, 15 names).
+ * getByEmail and list only), so each page looks up at most this many names one by one. Enrollments
+ * also finds which outline lessons are published (#39): count, query, the outlines, 10 names and 7
+ * calls for the published lessons stay at 20.
  */
-export const LIST_PAGE = 15;
+export const LIST_PAGE = 10;
+/** Calls Enrollments spends finding published lessons: 700 published lessons, or lookups by id. */
+const LESSON_PAGES = 7;
 /** Users pages (100 each) Find scans for a name: the first 500 members. An email finds anyone. */
 const FIND_PAGES = 5;
 /**
@@ -54,8 +58,13 @@ export async function findMembers(ctx: Ctx, text: string): Promise<Found> {
 type ListOpts = { cursor?: string; find?: string };
 type Listed<T> = { ok: true; total: number; items: T[]; cursor?: string; partial: boolean };
 
-/** Enrollments, newest first, with names and progress (countProgress) against the course outline. At most 18 calls. */
-export async function listEnrollments(ctx: Ctx, opts: ListOpts): Promise<Listed<Enrollment & { id: string; memberName: string; progress: ReturnType<typeof countProgress> }>> {
+/**
+ * Enrollments, newest first, with names and progress on the outline's published lessons, the count
+ * the member sees (publishedProgress). At most 20 calls.
+ * ponytail: past 700 published lessons a lesson further back reads as not published here; the
+ * member's course page scans 1,500.
+ */
+export async function listEnrollments(ctx: Ctx, opts: ListOpts): Promise<Listed<Enrollment & { id: string; memberName: string; progress: { done: number; total: number; finished: boolean } }>> {
 	const found = opts.find ? await findMembers(ctx, opts.find) : null;
 	if (found && found.ids.length === 0) return { ok: true, total: 0, items: [], partial: found.partial };
 	// With Find, the total and the pages are the matches only, and Next pages through all of them.
@@ -69,24 +78,22 @@ export async function listEnrollments(ctx: Ctx, opts: ListOpts): Promise<Listed<
 		}),
 	]);
 	const rows = page.items.map((item) => ({ ...(item.data as Enrollment), id: item.id }));
-	const [names, outlines] = await Promise.all([
-		namesFor(ctx, rows.map((row) => row.memberId), found?.names),
-		rows.length ? ctx.storage.outlines!.getMany([...new Set(rows.map((row) => row.courseKey))]) : new Map(),
-	]);
+	const outlines = rows.length ? await ctx.storage.outlines!.getMany([...new Set(rows.map((row) => row.courseKey))]) : new Map();
+	const lessonsOf = (course: string) => parse(outlineSchema, outlines.get(course))?.lessons.map((lesson) => lesson.id) ?? [];
+	const [names, progress] = await Promise.all([namesFor(ctx, rows.map((row) => row.memberId), found?.names), publishedProgress(ctx, rows, lessonsOf, LESSON_PAGES)]);
 	return {
 		ok: true,
 		total,
-		items: rows.map((row) => ({
-			...row,
-			memberName: names.get(row.memberId) ?? "Former member",
-			progress: countProgress(row.done, ((outlines.get(row.courseKey) as { lessons?: Array<{ id: string }> } | undefined)?.lessons ?? []).map((lesson) => lesson.id)),
-		})),
+		items: rows.map((row, i) => {
+			const { live: _live, ...counted } = progress[i]!;
+			return { ...row, memberName: names.get(row.memberId) ?? "Former member", progress: counted };
+		}),
 		cursor: page.hasMore ? page.cursor : undefined,
 		partial: found?.partial ?? false,
 	};
 }
 
-/** Quiz results, newest first, with names and quiz titles; each row carries attempts and best (readAttempt). At most 18 calls. */
+/** Quiz results, newest first, with names and quiz titles; each row carries attempts and best (readAttempt). At most 13 calls. */
 export async function listResults(ctx: Ctx, opts: ListOpts): Promise<Listed<Attempt & { id: string; memberName: string; quizTitle: string }> & { matches?: Array<{ id: string; name: string }> }> {
 	const found = opts.find ? await findMembers(ctx, opts.find) : null;
 	if (found && found.ids.length === 0) return { ok: true, total: 0, items: [], partial: found.partial };

@@ -89,10 +89,19 @@ export const saveQuizInput = z.object({
 	questions: z.array(question).check(z.maxLength(MAX_QUESTIONS)),
 	/** The lesson this quiz belongs to; "" detaches it, absent keeps it. One quiz per lesson. */
 	lesson: z.optional(z.union([id, z.literal("")])),
-	/** Left out keeps the stored value. passMark null removes it. */
+	/**
+	 * Left out keeps the stored value. passMark null or 0 removes it. Numbers are any number here:
+	 * writeQuiz refuses one out of range in plain words (#41), not as a bare INVALID_INPUT.
+	 */
 	mode: z.optional(mode),
-	passMark: z.optional(z.nullable(passMark)),
-	retake: z.optional(retake),
+	passMark: z.optional(z.nullable(z.number())),
+	retake: z.optional(
+		z.discriminatedUnion("type", [
+			z.object({ type: z.literal("unlimited") }),
+			z.object({ type: z.literal("max"), attempts: z.number() }),
+			z.object({ type: z.literal("wait"), minutes: z.number() }),
+		]),
+	),
 	rev,
 });
 export const deleteQuizInput = z.object({ quiz: id, rev: z.string().check(z.maxLength(64)) });

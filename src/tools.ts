@@ -41,7 +41,7 @@ export const toolRoutes = {
 			lessonKey: input.lesson ?? current?.lessonKey ?? "",
 			questions: input.questions,
 			mode: input.mode ?? current?.mode,
-			passMark: input.passMark === null ? undefined : (input.passMark ?? current?.passMark),
+			passMark: input.passMark === null || input.passMark === 0 ? undefined : (input.passMark ?? current?.passMark),
 			retake: input.retake ?? current?.retake,
 		}));
 	},
@@ -83,13 +83,13 @@ export const mcpTools: Record<string, SandboxedMcpTool> = {
 	getQuiz: { description: "Read one quiz with its questions, correct and accepted answers, explanations, mode, pass mark and retake policy.", route: "tools/getQuiz", input: schema(quizInput) },
 	saveQuiz: {
 		description:
-			"Create a quiz (no quiz id) or replace one (quiz id and its rev). Questions, at most 20: choice (four answers, correct 0-3), true_false (correct 0 true, 1 false), multi (four answers, correct: every right index), short (accepted: typed answers), blank (prompt marks the blank with ___, accepted: typed answers); typed answers ignore case and extra spacing; each may carry an explain shown after a practice quiz. mode graded or practice (practice never blocks progress and shows right answers after submit); passMark 1-100 percent (null removes it) makes a graded quiz block completing its lesson until passed; retake {type:unlimited} or {type:max, attempts} or {type:wait, minutes}. Leaving mode, passMark or retake out keeps them. lesson: the lesson entry id it belongs to (an empty string takes it off, leaving it out keeps it); a lesson that already has another quiz is refused.",
+			"Create a quiz (no quiz id) or replace one (quiz id and its rev). Questions, at most 20: choice (four answers, correct 0-3), true_false (correct 0 true, 1 false), multi (four answers, correct: every right index), short (accepted: typed answers), blank (prompt marks the blank with ___, accepted: typed answers); typed answers ignore case and extra spacing; each may carry an explain shown after a practice quiz. mode graded or practice (practice never blocks progress and shows right answers after submit); passMark a whole percent 1-100 (null or 0 removes it) makes a graded quiz block completing its lesson until passed; retake {type:unlimited} or {type:max, attempts 1-100} or {type:wait, minutes 1-43200}; a number out of range is refused with a message saying what is allowed. Leaving mode, passMark or retake out keeps them. lesson: the lesson entry id it belongs to (an empty string takes it off, leaving it out keeps it); a lesson that already has another quiz is refused.",
 		route: "tools/saveQuiz",
 		input: schema(saveQuizInput),
 		destructive: true,
 	},
 	deleteQuiz: { description: "Delete a quiz. Pass its rev from listQuizzes or getQuiz.", route: "tools/deleteQuiz", input: schema(deleteQuizInput), destructive: true },
-	listEnrollments: { description: "List enrollments newest first with member names and progress, 15 a page; find filters by member name or email.", route: "tools/listEnrollments", input: schema(listInput) },
+	listEnrollments: { description: "List enrollments newest first with member names and progress (published lessons only, as the member sees it), 10 a page; find filters by member name or email.", route: "tools/listEnrollments", input: schema(listInput) },
 	listCertificates: {
 		description: "List a course's certificates newest first, 8 a page: member id and name, completion date, and whether the shareable link is on (with its token). Courses finished before 0.3.0 get their certificate here.",
 		route: "tools/listCertificates",
@@ -101,5 +101,5 @@ export const mcpTools: Record<string, SandboxedMcpTool> = {
 		input: schema(certificateOffInput),
 		destructive: true,
 	},
-	listResults: { description: "List quiz results newest first with member names, quiz titles, latest score, best percent and number of attempts, 15 a page; find filters by member name or email.", route: "tools/listResults", input: schema(listInput) },
+	listResults: { description: "List quiz results newest first with member names, quiz titles, latest score, best percent and number of attempts, 10 a page; find filters by member name or email.", route: "tools/listResults", input: schema(listInput) },
 };

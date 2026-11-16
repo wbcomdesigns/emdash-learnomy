@@ -1,6 +1,6 @@
 import type { Question, Quiz } from "./schemas";
 import { MAX_ATTEMPTS, MAX_QUESTIONS, MAX_WAIT_MINUTES } from "./schemas";
-import { type Ctx, type Fail, titleOf } from "./lib/common";
+import { type Ctx, type Fail, titleOf, typesMissing } from "./lib/common";
 import { getOutline, saveOutline } from "./lib/outlines";
 import { FIND_MATCHES, listEnrollments, listResults, LIST_PAGE } from "./lib/people";
 import { BLANK, deleteQuiz, getQuiz, listQuizzes, writeQuiz } from "./lib/quizzes";
@@ -248,7 +248,7 @@ function settingsForm(id: string, quiz: Quiz): Block {
 		block_id: `qs|${id}|${quiz.rev}`,
 		fields: [
 			{ type: "select", action_id: "mode", label: "Mode", options: [{ label: "Graded", value: "graded" }, { label: "Practice (shows right answers, never blocks)", value: "practice" }], initial_value: quiz.mode },
-			{ type: "number_input", action_id: "pass_mark", label: "Pass mark in percent (0 for none; graded quizzes only)", initial_value: quiz.passMark ?? 0, min: 0, max: 100, condition: { field: "mode", eq: "graded" } },
+			{ type: "number_input", action_id: "pass_mark", label: "Pass mark: a whole percent from 1 to 100, or 0 for none (graded quizzes only)", initial_value: quiz.passMark ?? 0, condition: { field: "mode", eq: "graded" } },
 			{
 				type: "select",
 				action_id: "retake",
@@ -260,20 +260,24 @@ function settingsForm(id: string, quiz: Quiz): Block {
 				],
 				initial_value: r.type,
 			},
-			{ type: "number_input", action_id: "attempts", label: "Attempts allowed", initial_value: r.type === "max" ? r.attempts : 3, min: 1, max: MAX_ATTEMPTS, condition: { field: "retake", eq: "max" } },
-			{ type: "number_input", action_id: "minutes", label: "Minutes to wait before a retry", initial_value: r.type === "wait" ? r.minutes : 60, min: 1, max: MAX_WAIT_MINUTES, condition: { field: "retake", eq: "wait" } },
+			{ type: "number_input", action_id: "attempts", label: `Attempts allowed (1 to ${MAX_ATTEMPTS})`, initial_value: r.type === "max" ? r.attempts : 3, condition: { field: "retake", eq: "max" } },
+			{ type: "number_input", action_id: "minutes", label: `Minutes to wait before a retry (1 to ${MAX_WAIT_MINUTES}, which is 30 days)`, initial_value: r.type === "wait" ? r.minutes : 60, condition: { field: "retake", eq: "wait" } },
 		],
 		submit: { label: "Save settings", action_id: "quiz_settings" },
 	};
 }
 
-/** Mode, pass mark and retake policy from the settings form. Out-of-range numbers reach writeQuiz, which says what is wrong. */
+/**
+ * Mode, pass mark and retake policy from the settings form. The number fields carry no min or max: the
+ * browser's own range bubble shows for a moment and sends nothing, so every out-of-range or empty
+ * number reaches writeQuiz, whose refusal says what is allowed (#41). An empty field is NaN, refused.
+ */
 function settingsFrom(values: Record<string, unknown>): Pick<Quiz, "mode" | "passMark" | "retake"> {
 	const mode = asString(values.mode) === "practice" ? "practice" : "graded";
-	const mark = asNumber(values.pass_mark) ?? 0;
+	const n = (value: unknown) => asNumber(value) ?? Number.NaN;
+	const mark = n(values.pass_mark);
 	const kind = asString(values.retake);
-	const retake: Quiz["retake"] =
-		kind === "max" ? { type: "max", attempts: asNumber(values.attempts) ?? 0 } : kind === "wait" ? { type: "wait", minutes: asNumber(values.minutes) ?? 0 } : { type: "unlimited" };
+	const retake: Quiz["retake"] = kind === "max" ? { type: "max", attempts: n(values.attempts) } : kind === "wait" ? { type: "wait", minutes: n(values.minutes) } : { type: "unlimited" };
 	return { mode, passMark: mode === "graded" && mark !== 0 ? mark : undefined, retake };
 }
 
@@ -538,8 +542,8 @@ async function renderEnrollments(ctx: Ctx, view: View, toast?: Toast): Promise<B
 	const rows = listed.items.map((e) => ({
 		member: e.memberName,
 		// Progress rides in the course cell (four columns clip at 390). Same count as the member's own
-		// screens (countProgress, on the outline here); a member who finished once stays finished.
-		course: `${e.courseTitle || "Untitled course"}: ${e.completedAt || e.progress.finished ? "finished" : `${e.progress.done} of ${e.progress.total} lessons`}`,
+		// screens, on the outline's published lessons: a lesson added after they finished is one more to do.
+		course: `${e.courseTitle || "Untitled course"}: ${e.progress.finished ? "finished" : `${e.progress.done} of ${e.progress.total} lessons`}`,
 		erase: manageMenu(e.memberId, e.memberName, "enrollments"),
 	}));
 	return {
@@ -762,7 +766,37 @@ export const openKey = (user: string) => `state:open:${user}`;
 /** The quiz the lesson panel asked to open, kept for the next Quizzes page load. */
 export const openQuizKey = (user: string) => `state:openquiz:${user}`;
 
+/** The guide that copies the kit and creates the content types, on the repository the plugin names. */
+export const INSTALL_GUIDE = "https://github.com/wbcomdesigns/emdash-learnomy/blob/main/docs/website/getting-started/install.md";
+
+/**
+ * Every admin screen before the site kit's seed has run (no lms_courses or lms_lessons yet): the next
+ * step instead of "Plugin error" (#38). No reads.
+ */
+function setUpFirst(): BlockResponse {
+	return {
+		blocks: [
+			{
+				type: "banner",
+				variant: "default",
+				title: "Next: copy the site kit",
+				description: "Learnomy's Courses and Lessons content types are not on this site yet. Step 2 of the install guide copies the course pages into your site and adds them. Then restart or redeploy the site and come back here.",
+			},
+			actionsRow({ type: "link", label: "Open the install guide", target: { kind: "external", url: INSTALL_GUIDE }, appearance: "primary" }),
+		],
+	};
+}
+
 export async function handleAdmin(input: unknown, ctx: Ctx, user?: User): Promise<BlockResponse> {
+	try {
+		return await route(input, ctx, user);
+	} catch (error) {
+		if (typesMissing(error)) return setUpFirst();
+		throw error;
+	}
+}
+
+async function route(input: unknown, ctx: Ctx, user?: User): Promise<BlockResponse> {
 	const raw = asRecord(input);
 	const type = asString(raw.type);
 	const action = asString(raw.action_id);

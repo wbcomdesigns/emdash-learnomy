@@ -11,7 +11,7 @@ const CAP = 20;
 /**
  * Bridge calls per entry point at its worst case, measured and pinned: a change that moves one shows
  * up here. The busy site: 520 members, 600 course outlines, one of 200 lessons, 30 courses and 30
- * lessons, a 20-question quiz, 15 members with enrollments and results on the first list page, and a
+ * lessons, a 20-question quiz, 15 members with enrollments and results (10 on the first list page), and a
  * member with 500 enrollments and 500 attempts to erase. completeLesson retries once when another tab
  * wrote between its read and write: its ceiling is 7 (outline get, the lesson's quiz, the member's
  * attempt, then getVersioned + compareAndSet twice), never measured here because the test host runs one call at a time.
@@ -27,7 +27,8 @@ const CAP = 20;
 // (one retry) = 20 at most. progress: 2 + 3 (quizzes on a 200-lesson outline, 80 lessons a query) + 1
 // (attempts) = 6 at most. memberQuiz: 4 (with the kept retake record). submitQuiz: 5 (quiz, lesson, attempt getVersioned, the kept retake record, compareAndSet); with
 // a retake limit the kept record is raised before the attempt is saved: 1 compare-and-set, 2 more per
-// retry (3 tries), and listing it in the member's index (2 to 4 the first time, 2 on a retry after an admin erase): 18 at most. Erase rounds under contention: tests/erase-race.test.ts counts them (20 at most).
+// retry (3 tries), and listing it in the member's index (2 to 4 the first time, 2 on a retry after an admin erase): 18 at most. Enrollments: count, query, the outlines, 10 names and the
+// published lessons of their courses (7 pages at most, #39): 20 at most. Erase rounds under contention: tests/erase-race.test.ts counts them (20 at most).
 const MEASURED: Record<string, number> = {
 	"route outline (200 lessons, 262 published on the site)": 5,
 	"route quiz (guest, lesson in no course, 600 outlines)": 7,
@@ -63,11 +64,11 @@ const MEASURED: Record<string, number> = {
 	"admin question_menu (remove asks first)": 1,
 	"admin question_remove": 2,
 	"admin quiz_delete": 5,
-	"admin page_load /enrollments (15 members)": 18,
+	"admin page_load /enrollments (10 members)": 16,
 	"admin enrollments_find (name, 520 members)": 7,
-	"admin enrollments_find (email)": 4,
+	"admin enrollments_find (email)": 7,
 	"admin enrollments_page (Find by name, page 2)": 8,
-	"admin page_load /results (15 members)": 18,
+	"admin page_load /results (10 members)": 11,
 	"admin member_menu (asks first)": 0,
 	"admin member_erase (500 + 500 rows, each round)": 18,
 	"admin widget summary": 3,
@@ -79,8 +80,8 @@ const MEASURED: Record<string, number> = {
 	"tool getQuiz": 1,
 	"tool saveQuiz (replace)": 2,
 	"tool deleteQuiz": 4,
-	"tool listEnrollments": 18,
-	"tool listResults": 18,
+	"tool listEnrollments": 16,
+	"tool listResults": 11,
 	"admin quiz_lessons (30 lessons)": 3,
 	"admin quiz_lesson_set (claims a lesson, frees the old one)": 7,
 	"admin quiz_lesson_set (lesson taken, refused)": 8,
@@ -247,8 +248,8 @@ describe("bridge calls per entry point, worst case", () => {
 
 	it("lists, erase and dashboard card", async () => {
 		const admin = s.rt.admin;
-		const page = await measure("admin page_load /enrollments (15 members)", () => admin.loadPage("/enrollments", { user: root }));
-		expect(page.blocks.find((b: Out) => b.type === "table").rows.filter((r: Out) => /^Member /.test(r.member))).toHaveLength(14);
+		const page = await measure("admin page_load /enrollments (10 members)", () => admin.loadPage("/enrollments", { user: root }));
+		expect(page.blocks.find((b: Out) => b.type === "table").rows.filter((r: Out) => /^Member /.test(r.member))).toHaveLength(9);
 		await measure("admin enrollments_find (name, 520 members)", () => admin.submit("/enrollments", "enrollments_find", { find: "member 3" }, { user: root }));
 		await measure("admin enrollments_find (email)", () => admin.submit("/enrollments", "enrollments_find", { find: "m3@example.com" }, { user: root }));
 		// One member with 16 enrollments, so Find by name offers Next: page 2 runs Find again (five users
@@ -257,8 +258,8 @@ describe("bridge calls per entry point, worst case", () => {
 		for (let i = 0; i < 16; i += 1) await s.rt.fixtures.plugin.storage("enrollments", `${zed}:z${i}`, { memberId: zed, courseKey: `z${i}`, courseTitle: "Course Z", startedAt: new Date(Date.UTC(2026, 9, 1, 0, i)).toISOString(), updatedAt: new Date(Date.UTC(2026, 9, 1, 0, i)).toISOString(), completedAt: null, done: [] });
 		const found = (await admin.submit("/enrollments", "enrollments_find", { find: "zed pager" }, { user: root })) as Out;
 		const findNext = found.blocks.find((b: Out) => b.type === "actions").elements.find((e: Out) => e.label === "Next page");
-		expect((await measure("admin enrollments_page (Find by name, page 2)", () => admin.act("/enrollments", "enrollments_page", { value: findNext.value, user: root }))).blocks.find((b: Out) => b.type === "table").rows).toHaveLength(1);
-		await measure("admin page_load /results (15 members)", () => admin.loadPage("/results", { user: root }));
+		expect((await measure("admin enrollments_page (Find by name, page 2)", () => admin.act("/enrollments", "enrollments_page", { value: findNext.value, user: root }))).blocks.find((b: Out) => b.type === "table").rows).toHaveLength(6);
+		await measure("admin page_load /results (10 members)", () => admin.loadPage("/results", { user: root }));
 		await measure("admin widget summary", () => admin.loadWidget("summary", { user: root }));
 		await measure("admin member_menu (asks first)", () => admin.act("/enrollments", "member_menu", { value: JSON.stringify({ m: "ben", n: "Ben" }), user: root }));
 		let done = false;

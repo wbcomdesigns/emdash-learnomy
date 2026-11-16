@@ -25,7 +25,7 @@ A teacher sharing what they know, a company training its team, or a publisher ad
 - **Courses and lessons in the editor you already use.** Each course has a cover image, an excerpt and a category, under its own Courses and Lessons menus.
 - **A Course outline page.** Pick a course, add its lessons by title and put them in order. Lessons that are not published yet are marked, so nothing half-finished reaches your members.
 - **Open or Members courses.** Anyone can read an Open course. A Members course asks visitors to sign in first.
-- **One quiz per lesson.** Multiple choice or true or false, up to 20 questions, written one question at a time.
+- **One quiz per lesson.** Up to 20 questions: multiple choice, multiple answers, true or false, short answer or fill in the blank. Graded with an optional pass mark that members pass to complete the lesson, or practice that shows the right answers after submitting. Limit retakes to a number of attempts or a wait between them.
 - **Enrollments and Quiz results** with your members' names, and one click to erase a member's data when they ask.
 - **A dashboard card** with your course, enrollment and quiz counts.
 

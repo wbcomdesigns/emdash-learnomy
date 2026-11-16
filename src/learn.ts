@@ -13,7 +13,7 @@ import {
 	type Outline,
 	type Quiz,
 } from "./schemas";
-import { BAD_INPUT, countProgress, type Ctx, fail, nowIso, parse, SIGN_IN, titleOf } from "./lib/common";
+import { BAD_INPUT, countProgress, type Ctx, fail, nowIso, parse, SIGN_IN, titleOf, typesMissing } from "./lib/common";
 import { gates, grade, hasPassed, MAX_HISTORY, percentOf, readAttempt, retakeState, reviewOf } from "./lib/attempts";
 import { newToken } from "./lib/certificates";
 import { coursesOf, getOutline as loadOutline } from "./lib/outlines";
@@ -71,7 +71,15 @@ export async function findPublished(ctx: Ctx, collection: string, wanted: Set<st
 			complete = true;
 			break;
 		}
-		const result = await ctx.content!.list(collection, { where: { status: "published" }, limit: 100, ...(cursor ? { cursor } : {}) });
+		// Before the kit's seed creates the collection nothing is published: routes answer empty (#38).
+		const result = await ctx.content!.list(collection, { where: { status: "published" }, limit: 100, ...(cursor ? { cursor } : {}) }).catch((error: unknown) => {
+			if (typesMissing(error)) return null;
+			throw error;
+		});
+		if (!result) {
+			complete = true;
+			break;
+		}
 		for (const item of result.items) if (wanted.has(item.id)) found.set(item.id, item);
 		if (!result.hasMore || !result.cursor) {
 			complete = true;
@@ -81,6 +89,21 @@ export async function findPublished(ctx: Ctx, collection: string, wanted: Set<st
 	}
 	const unchecked = complete || found.size === wanted.size ? new Set<string>() : new Set([...wanted].filter((id) => !found.has(id)));
 	return Object.assign(found, { unchecked });
+}
+
+/**
+ * Each enrollment's progress on its course outline's published lessons, in `rows` order: the one count
+ * every screen shows (SCOPE: progress), Your courses and Enrollments alike. `lessonsOf` gives a course's
+ * outline lesson ids (none for a course to leave out). One findPublished of at most `pages` calls; a
+ * lesson it never reached counts as not published, as on the member's own screens.
+ */
+export async function publishedProgress(ctx: Ctx, rows: Enrollment[], lessonsOf: (course: string) => string[], pages: number) {
+	const wanted = new Set(rows.flatMap((row) => lessonsOf(row.courseKey)));
+	const found = wanted.size ? await findPublished(ctx, "lms_lessons", wanted, pages) : new Map();
+	return rows.map((row) => {
+		const live = lessonsOf(row.courseKey).filter((id) => found.has(id));
+		return { live, ...countProgress(row.done, live) };
+	});
 }
 
 export type OutlineLesson = { id: string; title: string; slug: string };
@@ -321,12 +344,10 @@ export async function myCourses(routeCtx: RouteCtx, ctx: Ctx) {
 	const keys = [...new Set(rows.map((row) => row.courseKey))];
 	const [outlines, courses] = await Promise.all([ctx.storage.outlines!.getMany(keys), findPublished(ctx, "lms_courses", new Set(keys), MY_COURSE_PAGES)]);
 	const lessonsOf = new Map(keys.filter((key) => courses.has(key)).map((key) => [key, parse(outlineSchema, outlines.get(key))?.lessons.map((lesson) => lesson.id) ?? []]));
-	const wanted = new Set([...lessonsOf.values()].flat());
-	const found = wanted.size ? await findPublished(ctx, "lms_lessons", wanted, MY_LESSON_PAGES) : new Map();
-	const items = rows.map((row) => {
+	const progressOf = await publishedProgress(ctx, rows, (key) => lessonsOf.get(key) ?? [], MY_LESSON_PAGES);
+	const items = rows.map((row, i) => {
 		const course = courses.get(row.courseKey);
-		const live = (lessonsOf.get(row.courseKey) ?? []).filter((id) => found.has(id));
-		const counted = countProgress(row.done, live);
+		const { live, ...counted } = progressOf[i]!;
 		return {
 			course: row.courseKey,
 			slug: course ? (course.slug ?? row.courseKey) : "",
