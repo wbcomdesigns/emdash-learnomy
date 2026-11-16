@@ -403,9 +403,57 @@ describe("MCP saveQuiz and getQuiz for 0.2.0", () => {
 		got = await call("getQuiz", { quiz: made.id });
 		expect(cleared.ok).toBe(true);
 		expect(got.passMark).toBeUndefined();
-		expect((await call("saveQuiz", { title: "Bad", questions: [], passMark: 0 })).error.code).toBe("INVALID_INPUT");
+		// 0 means none, as on the Quizzes page (#41).
+		const zero = await call("saveQuiz", { title: "No mark", questions: [], passMark: 0 });
+		expect(zero.ok).toBe(true);
+		expect(zero.quiz.passMark).toBeUndefined();
 		// A practice quiz keeps no pass mark (SCOPE 0.2.0), from the MCP tool too.
 		const practice = await call("saveQuiz", { title: "Practice", questions: ALL_TYPES, mode: "practice", passMark: 80 });
 		expect((await call("getQuiz", { quiz: practice.id })).passMark).toBeUndefined();
+	});
+});
+
+describe("Numeric quiz settings out of range are refused in plain words (#41)", () => {
+	it("on the Quizzes page: no browser-only limits, every refusal is a toast and nothing is stored", async () => {
+		const s = await open();
+		const page = (await s.rt.admin.submit("/quizzes", "quiz_create", { title: "Limits" }, { user: root })) as R;
+		const id = (await s.rt.inspect.storage.list("quizzes"))[0]!.id;
+		const form = page.blocks.find((b) => b.type === "form" && String(b.block_id).startsWith("qs|"))!;
+		for (const field of form.fields.filter((f: Record<string, unknown>) => f.type === "number_input")) {
+			expect(field.min, field.action_id).toBeUndefined();
+			expect(field.max, field.action_id).toBeUndefined();
+		}
+		const before = await s.rt.inspect.storage.get<Record<string, unknown>>("quizzes", id);
+		const save = async (values: Record<string, unknown>) => (await s.rt.admin.submit("/quizzes", "quiz_settings", values, { blockId: `qs|${id}|${before!.rev}`, user: root })) as R;
+		for (const [values, says] of [
+			[{ mode: "graded", pass_mark: 120, retake: "unlimited" }, "from 1 to 100, or 0 for none"],
+			[{ mode: "graded", pass_mark: -5, retake: "unlimited" }, "from 1 to 100, or 0 for none"],
+			[{ mode: "graded", pass_mark: 50.5, retake: "unlimited" }, "from 1 to 100, or 0 for none"],
+			[{ mode: "graded", retake: "unlimited" }, "from 1 to 100, or 0 for none"],
+			[{ mode: "graded", pass_mark: 50, retake: "max", attempts: 0 }, "from 1 to 100 attempts"],
+			[{ mode: "graded", pass_mark: 50, retake: "max", attempts: 101 }, "from 1 to 100 attempts"],
+			[{ mode: "graded", pass_mark: 50, retake: "max" }, "from 1 to 100 attempts"],
+			[{ mode: "graded", pass_mark: 50, retake: "wait", minutes: 43201 }, "from 1 to 43200 minutes"],
+			[{ mode: "graded", pass_mark: 50, retake: "wait", minutes: 0 }, "from 1 to 43200 minutes"],
+		] as const) {
+			const out = await save(values);
+			expect(out.toast, JSON.stringify(values)).toMatchObject({ type: "error", message: expect.stringContaining(says) });
+		}
+		expect(await s.rt.inspect.storage.get("quizzes", id)).toEqual(before);
+	});
+
+	it("in the MCP saveQuiz tool: the same plain refusal, not a bare INVALID_INPUT", async () => {
+		const s = await open();
+		const call = (input: unknown) => s.rt.transport.invokeRoute("tools/saveQuiz", input, { method: "POST", user: root } as never) as Promise<Record<string, any>>;
+		for (const [extra, says] of [
+			[{ passMark: 120 }, "from 1 to 100, or 0 for none"],
+			[{ passMark: 12.5 }, "from 1 to 100, or 0 for none"],
+			[{ retake: { type: "max", attempts: 0 } }, "from 1 to 100 attempts"],
+			[{ retake: { type: "wait", minutes: 50000 } }, "from 1 to 43200 minutes"],
+		] as const) {
+			const out = await call({ title: "Agent", questions: [], ...extra });
+			expect(out.error, JSON.stringify(extra)).toMatchObject({ code: "INVALID_QUIZ", message: expect.stringContaining(says) });
+		}
+		expect(await s.rt.inspect.storage.list("quizzes")).toHaveLength(0);
 	});
 });

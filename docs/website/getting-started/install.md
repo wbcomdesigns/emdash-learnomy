@@ -25,7 +25,7 @@ Stop the dev server and start it again. **Registry** now shows in the dashboard 
 1. In the dashboard, open **Plugins**, then **Registry**. Search **Learnomy**, press Install and accept the two permissions:
    - **Read your content**, so Learnomy can list your courses and lessons by title and show only published ones to visitors.
    - **Read user accounts**, so the Enrollments and Quiz results lists show member names instead of ids.
-2. Four pages appear in the dashboard menu under **Plugins**, next to other plugins' pages: **Course outline**, **Quizzes**, **Enrollments** and **Quiz results**. A Learnomy card appears on the dashboard.
+2. Four pages appear in the dashboard menu under **Plugins**, next to other plugins' pages: **Course outline**, **Quizzes**, **Enrollments** and **Quiz results**. A Learnomy card appears on the dashboard. Until you finish step 2, the card and **Course outline** say "Next: copy the site kit" with a link to this guide: the Courses and Lessons content types come with the kit.
 
 ## Step 2: copy the site kit
 
@@ -33,7 +33,7 @@ From your site's root folder, run this. It gets the kit for the version you inst
 
 ```bash
 kit="$(mktemp -d)/emdash-learnomy" &&
-  git clone --depth 1 --branch v0.2.1 https://github.com/wbcomdesigns/emdash-learnomy "$kit" &&
+  git clone --depth 1 --branch v0.2.2 https://github.com/wbcomdesigns/emdash-learnomy "$kit" &&
   mkdir -p src/pages src/components src/lib src/styles src/layouts &&
   cp -R "$kit/site-kit/pages/." src/pages/ &&
   cp "$kit/site-kit/components/LearnomyMyCourses.astro" src/components/ &&
@@ -105,4 +105,4 @@ Then [let members join](let-members-join.md) so they can enroll.
 
 ## After every update
 
-Run step 2 again with the new version's tag in place of `v0.2.1`. It replaces the kit's pages, styles and wording file and keeps your layout file. If you changed `learnomy-strings.ts` or a kit page, copy your changes back in after.
+Run step 2 again with the new version's tag in place of `v0.2.2`. It replaces the kit's pages, styles and wording file and keeps your layout file. If you changed `learnomy-strings.ts` or a kit page, copy your changes back in after.

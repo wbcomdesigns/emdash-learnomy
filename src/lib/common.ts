@@ -25,11 +25,19 @@ export const titleOf = (item: { data: unknown; slug?: string | null } | null | u
 
 /**
  * One progress count for every screen: the done lessons among `lessons`, of `lessons`, finished when
- * every one is done. Visitor screens pass the outline's published lessons; the admin list passes the
- * outline. A done lesson later removed from the outline never counts, so it never reads "7 of 5".
+ * every one is done. Every screen passes the outline's published lessons (publishedProgress in
+ * learn.ts; the kit counts the same way). A done lesson later removed from the outline never counts,
+ * so it never reads "7 of 5".
  */
 export function countProgress(done: string[], lessons: string[]) {
 	const set = new Set(done);
 	const count = lessons.filter((id) => set.has(id)).length;
 	return { done: count, total: lessons.length, finished: lessons.length > 0 && count === lessons.length };
 }
+
+/**
+ * A content call failed because Learnomy's content types (lms_courses, lms_lessons) are not created
+ * yet: the site kit's seed has not run. EmDash 1.5 throws the database's own message ("no such table:
+ * ec_lms_courses" on SQLite and D1; "does not exist" on Postgres).
+ */
+export const typesMissing = (error: unknown) => /no such table|does not exist/i.test(error instanceof Error ? error.message : String(error));

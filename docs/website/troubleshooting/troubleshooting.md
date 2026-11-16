@@ -14,9 +14,11 @@
 
 **A lesson has no quiz.** The quiz is not on that lesson. On the Quizzes page, open the quiz and press Choose lesson.
 
+**The dashboard card or Course outline says "Next: copy the site kit".** The Courses and Lessons content types are not on your site yet. Run step 2 of [Install Learnomy](../getting-started/install.md), then restart or redeploy.
+
 **Members cannot enroll.** They need to be signed in. Invite them: see [Let members join](../getting-started/let-members-join.md).
 
-**An invited member got no email.** Your site needs an email provider. Check Settings, Email.
+**An invited member got no email.** Your site needs an email provider: open Settings, Email Settings and check the Email Pipeline box. On a local test site (`npm run dev`) emails only go to the terminal. See [Let members join](../getting-started/let-members-join.md).
 
 **Course pages do not match my theme.** If your site's layout is not `src/layouts/Base.astro`, change the import in `src/layouts/LearnomyLayout.astro`.
 
@@ -25,11 +27,11 @@
 ## Known limits
 
 - **1,500 published lessons.** To show only published lessons, each page reads the first 100 published lessons and looks up any others it needs one by one. When a course has more lessons further back than that can cover, it reads up to 1,500 published lessons; on a site with more, a lesson further back is hidden from its course page, never shown by mistake.
-- **Finished stays finished in Enrollments.** A member finishes a course when every published lesson in it is done. If you add a lesson later, their course page shows one more to do, while Enrollments keeps saying Finished.
+- **Progress counts published lessons only, everywhere.** A member finishes a course when every published lesson in it is done. A draft lesson in the outline is not counted. If you publish another lesson later, the member's course page, Your courses and Enrollments all show one more to do. Enrollments checks up to 700 published lessons of a site; past that a lesson further back is not counted there.
 - **200 lessons per course.** A course outline holds up to 200 lessons.
-- **20 questions per quiz.** One quiz per lesson, multiple choice with four answers or true or false.
+- **20 questions per quiz.** One quiz per lesson. Multiple choice and multiple answers have four answers each; short answer and fill in the blank accept up to 10 typed answers. A pass mark is a whole percent from 1 to 100, retakes allow 1 to 100 attempts or a wait of 1 minute to 30 days.
 - **Lessons can sit in several courses.** That is allowed. A lesson opened without a course (from search, for example) takes the access of the first course it finds, Open courses first.
 - **Members is not enrolled-only.** Any signed-in member can read every published lesson.
-- **Lists show 15 rows a page.** Enrollments and Quiz results page through 15 at a time.
+- **Lists show 10 rows a page.** Enrollments and Quiz results page through 10 at a time.
 - **Your courses shows the 50 most recent courses** of a member.
 - **Self-signup** waits for EmDash's fix. Invite members for now.

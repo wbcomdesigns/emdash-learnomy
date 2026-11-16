@@ -13,12 +13,12 @@ Run on a standard EmDash 1.5 blog site (`npm create emdash@latest -- --template 
 - [ ] O7 Two tabs edit the same quiz: the second save is refused (version token) and says why.
 - [ ] O8 On the Quizzes page pick the quiz's lesson by title; a second quiz on the same lesson is refused; the lesson editor panel shows the quiz with a link; no id anywhere.
 - [ ] O9 Delete a quiz attached to a lesson: the lesson shows "No quiz on this lesson" on the site, no error.
-- [ ] O10 Enrollments list: member names (not ids), 15 rows (call budget), Find by name, Next/Previous, empty state.
+- [ ] O10 Enrollments list: member names (not ids), 10 rows (call budget), Find by name, Next/Previous, empty state. Progress matches the member's course page: a draft lesson in the outline is not counted (#39).
 - [ ] O11 Quiz results list: names, score, date, same paging, empty state.
-- [ ] O12 Dashboard card shows courses, enrollments and attempts counts, with New course and Course outline links.
+- [ ] O12 Dashboard card shows courses, enrollments and attempts counts, with New course and Course outline links. Before the kit's seed (registry install, no kit yet) the card, Course outline and a quiz's Choose lesson show "Next: copy the site kit" with Open the install guide, never "Plugin error" (#38).
 - [ ] O15 Lesson editor panel shows the courses the lesson is in, each linking to its outline.
 - [ ] O13 Erase one member: confirm once, all their enrollments and attempts gone, lists update.
-- [ ] O14 Invite a member (Users > Invite user, role Subscriber) following the "Let members join" guide; the member signs in.
+- [ ] O14 Invite a member following the "Let members join" guide word for word: email provider checked first, role changed from Author to Subscriber; on a local Node site the link is found in the terminal or /_emdash/api/dev/emails; the member signs in (#42).
 
 ## Guest (signed out)
 
@@ -67,6 +67,7 @@ Run on a standard EmDash 1.5 blog site (`npm create emdash@latest -- --template 
 - [ ] Q10 Owner: Quiz results shows Best and Attempts; erasing the member removes their attempts.
 - [ ] Q14 Member on a max-attempts quiz uses every attempt, then Erase my course data: the quiz still shows no attempts left and a submit is refused; on a wait quiz the wait still applies. Owner finds the member by email on Quiz results (they have no rows left), erases them: the member can take the quiz again.
 - [ ] Q15 (0.2.1) Member takes an unlimited quiz twice, then Erase my course data; owner sets the quiz to at most 2 attempts: the member sees no attempts left and a submit is refused. Owner deletes a quiz the member took, member erases again: the kept count for that quiz is gone.
+- [ ] Q16 (0.2.2) Quizzes page: a pass mark of 120, -5 or an empty box, 0 or 101 attempts, or a wait of 50000 minutes is refused with a red message saying what is allowed, and the settings line does not change. MCP `saveQuiz` with `passMark: 120` answers `INVALID_QUIZ` with the same words; `passMark: 0` removes it (#41).
 - [ ] Q11 Upgrade: on a site with 0.1.x quizzes and results, update to 0.2.0 with no other step: the old quizzes show and score as graded with unlimited retakes, Quiz results shows each old result as 1 attempt with its best score, and the next submit keeps the old score as the first history entry.*
 - [ ] Q12 Agents: `saveQuiz` with every question type, mode, pass mark and retake; `getQuiz` returns them; leaving them out keeps them; `passMark: null` removes it.
 - [ ] Q13 Quiz with each type at 1440, 768 and 390, light and dark, keyboard only: every question is a fieldset with a legend, multiple answers are checkboxes with the "Choose every answer that applies" hint, text answers have a label, the score and pass state are announced.

@@ -2,6 +2,17 @@
 
 Versions match `package.json`, the git tag and the registry release. Newest first.
 
+## [0.2.2]
+
+Fixes from the 0.2.1 QA pass. No new permissions and no new storage. The site kit did not change.
+
+- Fix      - The dashboard card and the admin pages show the next step, copy the site kit, instead of a plugin error before the Courses and Lessons content types exist.
+- Fix      - Enrollments counts progress on published lessons only, the same number the member sees; a draft lesson in the outline no longer holds a course open.
+- Fix      - A pass mark, number of attempts or wait out of range is refused with a message saying what is allowed, on the Quizzes page and in the saveQuiz agent tool.
+- Improve  - Enrollments and Quiz results show 10 rows a page, so Enrollments can check which lessons are published within its call budget.
+- Improve  - The saveQuiz agent tool takes a pass mark of 0 for none, as the Quizzes page does.
+- Dev      - README, introduction and known limits describe the 0.2 quiz types, pass marks, retakes and practice; Let members join walks through email setup, the Subscriber role and finding the invite link on a local site.
+
 ## [0.2.1]
 
 Retake counts through a member's own erase. No new permissions and no new storage. Copy the site kit again after updating (`learnomy-strings.ts`).
