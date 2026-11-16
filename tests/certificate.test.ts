@@ -218,3 +218,33 @@ describe("agent tools", () => {
 		expect((await tool("listCertificates", { course })).items[0].on).toBe(false);
 	});
 });
+
+describe("0.3.0 review fixes", () => {
+	const old = (s: Site, who: string, course: string, n: number, extra: Record<string, unknown> = {}) =>
+		s.rt.fixtures.plugin.storage("enrollments", `${who}:${course}`, { memberId: who, courseKey: course, courseTitle: `Old ${n}`, startedAt: "2026-10-01T00:00:00.000Z", updatedAt: new Date(Date.UTC(2026, 9, 1, 0, n)).toISOString(), completedAt: new Date(Date.UTC(2026, 9, 1, 0, 60 - n)).toISOString(), done: [], ...extra });
+
+	it("L1: a certificate not issued yet is not shown as switched off, and Turn on issues it", async () => {
+		const s = (site = await openSite());
+		for (let i = 0; i < 20; i += 1) await old(s, "ana", `c${i}`, i);
+		const items = ((await s.get("myCertificates", {}, ana)) as Out).items as Out[];
+		const waiting = items.filter((c) => !c.on);
+		expect(waiting).toHaveLength(2);
+		for (const c of waiting) expect(c.issued).toBe(false);
+		const got = (await s.post("setCertificate", { course: waiting[0]!.course, on: true }, ana)) as Out;
+		expect(got).toMatchObject({ ok: true, on: true, issued: true });
+		expect(got.token).toMatch(TOKEN);
+		// A switched-off link still reads as off (issued), not as waiting.
+		await s.post("setCertificate", { course: got.course, on: false }, ana);
+		expect((((await s.get("myCertificates", {}, ana)) as Out).items as Out[]).find((c) => c.course === got.course)).toMatchObject({ on: false, issued: true });
+	});
+
+	it("L3: every finished course Your courses shows has its certificate, past 50 finished courses", async () => {
+		const s = (site = await openSite());
+		// 60 finished courses whose completion order is the reverse of their activity order.
+		for (let i = 0; i < 60; i += 1) await old(s, "ana", `c${i}`, i, { certToken: "ab".repeat(16).slice(0, 30) + String(i).padStart(2, "0") });
+		const courses = (((await s.get("myCourses", {}, ana)) as Out).items as Out[]).map((c) => c.course);
+		const certs = new Set((((await s.get("myCertificates", {}, ana)) as Out).items as Out[]).map((c) => c.course));
+		expect(courses).toHaveLength(50);
+		for (const course of courses) expect(certs.has(course), course).toBe(true);
+	});
+});

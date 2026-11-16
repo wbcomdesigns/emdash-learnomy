@@ -11,8 +11,14 @@ import { namesFor } from "./people";
 export const newToken = () => [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join("");
 export const isToken = (value: unknown): value is string => typeof value === "string" && /^[0-9a-f]{32}$/.test(value);
 
-/** What a screen shows of one certificate: the link when on, off when switched off. */
-export const certState = (row: Pick<Enrollment, "certToken">) => (isToken(row.certToken) ? { token: row.certToken, on: true } : { token: "", on: false });
+/**
+ * What a screen shows of one certificate: the link when on; off when switched off; `issued: false`
+ * when it has no link yet (a lazy issue past the view's room or lost to a race), which Turn on issues.
+ */
+export const certState = ({ certToken }: Pick<Enrollment, "certToken">) => {
+	const off = certToken === "";
+	return isToken(certToken) ? { token: certToken, on: true, issued: true } : { token: "", on: false, issued: off };
+};
 
 export const NOT_FOUND = fail("CERTIFICATE_NOT_FOUND", "No certificate at this address.");
 /** The completed rows the lists read: completedAt is a time, so a range on it leaves out null. */
@@ -67,11 +73,13 @@ export async function certificate(input: unknown, ctx: Ctx) {
 const MY_CERTIFICATES = 50;
 
 /**
- * Member. The signed-in member's certificates, newest first: course, completion date, and the link
- * token when it is on. Issues the ones not issued yet. Calls: one query, then at most 18 issues: 19.
+ * Member. The signed-in member's certificates: course, completion date, and the link token when it is
+ * on. Issues the ones not issued yet. Ordered like myCourses (updatedAt, newest first), so every
+ * finished course among Your courses' 50 rows is among these 50 (#43 review L3). Calls: one query,
+ * then at most 18 issues: 19.
  */
 export async function myCertificates(member: string, ctx: Ctx) {
-	const page = await ctx.storage.enrollments!.query({ where: { memberId: member, completedAt: COMPLETED }, orderBy: { completedAt: "desc" }, limit: MY_CERTIFICATES });
+	const page = await ctx.storage.enrollments!.query({ where: { memberId: member, completedAt: COMPLETED }, orderBy: { updatedAt: "desc" }, limit: MY_CERTIFICATES });
 	const rows = page.items.map((item) => ({ ...(item.data as Enrollment), id: item.id }));
 	await issueMissing(ctx, rows, 18);
 	return { ok: true, items: rows.map((row) => ({ course: row.courseKey, completedAt: row.completedAt, ...certState(row) })) };
@@ -79,8 +87,9 @@ export async function myCertificates(member: string, ctx: Ctx) {
 
 /**
  * Member. Turn the link of the member's own certificate off, or on again with a new token (the old
- * link never works again). Turning on only applies to a switched-off link, so two tabs cannot swap a
- * link already shared. Calls: one guarded update, and when turning on did not apply a read: 2.
+ * link never works again). Turning on applies to a switched-off link, or issues a link not issued yet,
+ * so two tabs cannot swap a link already shared. Calls: one guarded update; turning on that did not
+ * apply tries the not-issued guard, then reads: 3.
  */
 export async function setCertificate(member: string, course: string, on: boolean, ctx: Ctx) {
 	const id = `${member}:${course}`;
@@ -88,6 +97,8 @@ export async function setCertificate(member: string, course: string, on: boolean
 	const out = await ctx.storage.enrollments!.updateIf(id, { where: on ? { certToken: "" } : { completedAt: COMPLETED }, set: { certToken: token } });
 	if (out.applied) return { ok: true as const, course, completedAt: (out.data as Enrollment).completedAt, ...certState(out.data as Enrollment) };
 	if (!on) return fail("NOT_FINISHED", "There is no certificate for this course.");
+	const issued = await ctx.storage.enrollments!.updateIf(id, { where: { certToken: null, completedAt: COMPLETED }, set: { certToken: token } });
+	if (issued.applied) return { ok: true as const, course, completedAt: (issued.data as Enrollment).completedAt, ...certState(issued.data as Enrollment) };
 	const row = (await ctx.storage.enrollments!.get(id)) as Enrollment | null;
 	// Already on (another tab turned it on): answer the link it has.
 	if (row?.completedAt && isToken(row.certToken)) return { ok: true as const, course, completedAt: row.completedAt, ...certState(row) };

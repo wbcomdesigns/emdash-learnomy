@@ -39,7 +39,7 @@ const Heading = `h${level}` as const;
 	type Item = { course: string; slug: string; title: string; available: boolean; done: number; total: number; finished: boolean; quizzesPassed?: number };
 
 	/** One certificate from myCertificates: the link token when the link is on. */
-	type Cert = { course: string; token: string; on: boolean };
+	type Cert = { course: string; token: string; on: boolean; issued?: boolean };
 	let certs = new Map<string, Cert>();
 
 	function certHtml(cert: Cert, title: string): string {
@@ -47,7 +47,10 @@ const Heading = `h${level}` as const;
 		const label = (action: string) => esc(S.certAction(action, title || S.catalog.title));
 		const actions = cert.on
 			? `<a class="learnomy-btn learnomy-btn--quiet" href="${esc(certificateHref(cert.token))}" aria-label="${label(S.cert.view)}" data-learnomy-cert-view>${esc(S.cert.view)}</a><button class="learnomy-btn learnomy-btn--quiet" type="button" aria-label="${label(S.cert.copy)}" data-learnomy-cert-copy>${esc(S.cert.copy)}</button><button class="learnomy-btn learnomy-btn--quiet" type="button" aria-label="${label(S.cert.turnOff)}" data-learnomy-cert-switch="off">${esc(S.cert.turnOff)}</button>`
-			: `<span class="learnomy-muted">${esc(S.cert.off)}</span><button class="learnomy-btn learnomy-btn--quiet" type="button" aria-label="${label(S.cert.turnOn)}" data-learnomy-cert-switch="on">${esc(S.cert.turnOn)}</button>`;
+			: cert.issued === false
+				? // No link made yet (the plugin makes it on the next view, or now on request): never shown as off.
+					`<button class="learnomy-btn learnomy-btn--quiet" type="button" aria-label="${label(S.cert.getLink)}" data-learnomy-cert-switch="on">${esc(S.cert.getLink)}</button>`
+				: `<span class="learnomy-muted">${esc(S.cert.off)}</span><button class="learnomy-btn learnomy-btn--quiet" type="button" aria-label="${label(S.cert.turnOn)}" data-learnomy-cert-switch="on">${esc(S.cert.turnOn)}</button>`;
 		return `<div class="learnomy-cert-row" role="group" aria-label="${esc(S.certAction(S.cert.label, title || S.catalog.title))}" data-learnomy-cert-row="${esc(cert.course)}" data-learnomy-cert-on="${cert.on ? "1" : ""}" data-learnomy-cert-title="${name}"><span class="learnomy-cert-row__label">${esc(S.cert.label)}</span><div class="learnomy-cert-row__actions">${actions}</div></div>`;
 	}
 
@@ -111,20 +114,21 @@ const Heading = `h${level}` as const;
 		box.querySelector<HTMLButtonElement>("[data-learnomy-cert-switch]")?.addEventListener("click", async (event) => {
 			const button = event.currentTarget as HTMLButtonElement;
 			const on = button.dataset.learnomyCertSwitch === "on";
+			const wasIssued = certs.get(course)?.issued !== false;
 			button.setAttribute("aria-busy", "true");
 			const result = await api(PLUGIN, "setCertificate", { course, on });
 			if (!result.ok) {
 				button.removeAttribute("aria-busy");
 				return say(S.cert.failed, "error");
 			}
-			const cert = { course, token: String(result.token ?? ""), on: Boolean(result.on) };
+			const cert = { course, token: String(result.token ?? ""), on: Boolean(result.on), issued: result.issued !== false };
 			certs.set(course, cert);
 			const next = document.createElement("div");
 			next.innerHTML = certHtml(cert, title);
 			const fresh = next.firstElementChild as HTMLElement;
 			box.replaceWith(fresh);
 			bindCert(root, fresh);
-			say(on ? S.cert.onDone : S.cert.offDone);
+			say(on ? (wasIssued ? S.cert.onDone : S.cert.ready) : S.cert.offDone);
 			// Keep keyboard focus on the row's switch after it is redrawn.
 			fresh.querySelector<HTMLButtonElement>("[data-learnomy-cert-switch]")?.focus();
 		});

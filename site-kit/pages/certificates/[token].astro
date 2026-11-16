@@ -18,6 +18,10 @@ const token = String(Astro.params.token ?? "");
 const result = /^[0-9a-f]{32}$/.test(token) ? await callPluginRoute(Astro.locals, PLUGIN, `certificate?token=${token}`) : null;
 const cert = result?.ok ? (result.certificate as { member: string; course: string; completedAt: string; site: string }) : null;
 if (Astro.cache?.enabled) Astro.cache.set(false);
+// Sent by the page itself, so neither depends on the site's layout or cache settings (a CDN rule, a
+// layout that ignores robots): a link turned off stops at once and is never listed.
+Astro.response.headers.set("Cache-Control", "private, no-store");
+Astro.response.headers.set("X-Robots-Tag", "noindex, nofollow");
 if (!cert) Astro.response.status = 404;
 const site = cert ? cert.site || (await getSiteSettings().catch(() => null))?.title || Astro.url.host : "";
 const link = cert ? new URL(certificateHref(token), Astro.url).href : "";

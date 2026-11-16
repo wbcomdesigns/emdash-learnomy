@@ -54,3 +54,10 @@ describe("certificate page (0.3.0)", () => {
 		expect(certPage).toMatch(/result\?\.ok \?/);
 	});
 });
+
+describe("certificate page headers (0.3.0 review L2)", () => {
+	it("sends no-store and noindex itself, whatever the layout or cache does", () => {
+		expect(certPage).toContain('Astro.response.headers.set("Cache-Control", "private, no-store")');
+		expect(certPage).toContain('Astro.response.headers.set("X-Robots-Tag", "noindex, nofollow")');
+	});
+});

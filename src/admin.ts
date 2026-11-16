@@ -700,7 +700,7 @@ async function renderCertificates(ctx: Ctx, course: string, title: string, view:
 	const rows = listed.items.map((c) => ({
 		member: c.memberName,
 		// Date and link state ride in one cell: four columns clip at 390.
-		finished: `${dayOf(c.completedAt)}, link ${c.on ? "on" : "off"}`,
+		finished: `${dayOf(c.completedAt)}, ${c.on ? "link on" : c.issued ? "link off" : "link not made yet"}`,
 		// An off link has no action here: only the member turns it on again, with a new link.
 		...(c.on
 			? { link: button("Turn link off", "cert_off", { c: course, t: name, m: c.member, n: c.memberName, at: view.at, back: view.back }, "danger", confirmBox(`Turn off ${c.memberName}'s certificate link?`, "The link stops working for everyone who has it. The member can turn it on again with a new link.", "Turn link off")) }

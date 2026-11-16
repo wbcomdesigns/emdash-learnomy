@@ -138,6 +138,8 @@ export const S = {
 		copyFailed: "Copy did not work. Select the link and copy it:",
 		turnOff: "Turn link off",
 		turnOn: "Turn on with a new link",
+		getLink: "Get the link",
+		ready: "Your certificate link is ready.",
 		off: "Link off. Nobody can open it.",
 		offDone: "Your certificate link is off. Anyone who has it sees Certificate not found.",
 		onDone: "Your certificate has a new link. The old link no longer works.",

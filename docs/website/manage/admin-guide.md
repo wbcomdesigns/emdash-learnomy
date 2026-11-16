@@ -83,12 +83,13 @@ Members can also erase their own Learnomy data from Your courses on your site. T
 
 ## Certificates
 
-When a member finishes a course (every published lesson done, and every graded quiz with a pass mark passed), Learnomy gives them a certificate with its own link to share. The certificate shows the member's name, the course, the completion date and your site's name (from **Settings**, site title). It never shows their email.
+When a member finishes a course (every published lesson done), Learnomy gives them a certificate with its own link to share. A graded quiz with a pass mark must be passed before its lesson counts as done, so on a course built with pass marks from the start every such quiz is passed. A lesson a member completed before you added a pass mark stays complete, so their certificate can be issued without that quiz passed. The certificate shows the member's name, the course, the completion date and your site's name (from **Settings**, site title). It never shows their email.
 
 **Plugins**, **Certificates**. Pick a course with **Certificates**. The list shows each member who finished it, newest first, eight to a page, with the date and whether their link is on.
 
-- **Turn link off** stops the member's link at once, after you confirm. Anyone who opens it sees "Certificate not found". Only the member can turn it on again, and they get a new link.
-- Courses members finished before 0.3.0 get their certificate the first time you open the course here or the member opens Your courses.
+- **Turn link off** stops the member's link at once, after you confirm. Anyone who opens it sees "Certificate not found". You can turn a link off but not back on: only the member can turn it on again, and they get a new link.
+- A certificate stays valid if you later unpublish or delete its course: the member earned it, and the page shows the course title stored when they enrolled.
+- Courses members finished before 0.3.0 get their certificate the first time you open the course here or the member opens Your courses. Until then the row reads "link not made yet", and the member sees **Get the link**.
 - Erase their data (on Enrollments or Quiz results) deletes the member's certificates too.
 
 The certificate page is the kit's `/certificates/<link>`. It is never cached, so a link turned off stops working straight away. It asks search engines not to list it, and printing it gives one clean landscape page.
